@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import Ajv, { type ValidateFunction } from 'ajv';
 import { CrewError } from '../core/errors';
-import type { Methodology, ReportPayload } from '../core/types';
+import type { AgentRole, Methodology, ReportPayload } from '../core/types';
 
 function schemaUrl(name: string): URL {
   const direct = new URL(`../../contracts/${name}`, import.meta.url);
@@ -22,6 +22,7 @@ function loadSchema(name: string): object {
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validateReportV1: ValidateFunction = ajv.compile(loadSchema('report.v1.schema.json'));
 const validateReportV2: ValidateFunction = ajv.compile(loadSchema('report.v2.schema.json'));
+const validateReportV3: ValidateFunction = ajv.compile(loadSchema('report.v3.schema.json'));
 
 export function validateReport(raw: unknown): ReportPayload {
   const schema =
@@ -29,11 +30,13 @@ export function validateReport(raw: unknown): ReportPayload {
       ? (raw as Record<string, unknown>).schema
       : undefined;
   const validate =
-    schema === 'crew.report/v2'
-      ? validateReportV2
-      : schema === 'crew.report/v1' || schema === undefined
-        ? validateReportV1
-        : null;
+    schema === 'crew.report/v3'
+      ? validateReportV3
+      : schema === 'crew.report/v2'
+        ? validateReportV2
+        : schema === 'crew.report/v1' || schema === undefined
+          ? validateReportV1
+          : null;
   if (!validate) {
     throw new CrewError('REPORT_INVALID', `Unsupported report schema: ${String(schema)}`);
   }
@@ -54,6 +57,8 @@ export function normalizeReport(
     status?: string;
     summary?: string;
     methodology?: Methodology;
+    role?: AgentRole;
+    reviewIteration?: number;
   },
 ): unknown {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -62,13 +67,26 @@ export function normalizeReport(
   const record = { ...(raw as Record<string, unknown>) };
   if (record.schema === undefined) {
     record.schema =
-      defaults.methodology && defaults.methodology !== 'free'
-        ? 'crew.report/v2'
-        : 'crew.report/v1';
+      defaults.role === 'tester'
+        ? 'crew.report/v3'
+        : defaults.methodology && defaults.methodology !== 'free'
+          ? 'crew.report/v2'
+          : 'crew.report/v1';
   }
   if (record.schema === 'crew.report/v2' && record.methodology === undefined) {
     if (defaults.methodology) {
       record.methodology = defaults.methodology;
+    }
+  }
+  if (record.schema === 'crew.report/v3') {
+    if (record.methodology === undefined && defaults.methodology) {
+      record.methodology = defaults.methodology;
+    }
+    if (record.role === undefined && defaults.role) {
+      record.role = defaults.role;
+    }
+    if (record.review_iteration === undefined && defaults.reviewIteration !== undefined) {
+      record.review_iteration = defaults.reviewIteration;
     }
   }
   if (record.task_id === undefined && defaults.taskId) {

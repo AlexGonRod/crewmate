@@ -5,7 +5,14 @@ import { errorMessage } from '../core/errors';
 import { newId } from '../core/ids';
 import { redactDeep } from '../core/redact';
 import { slugify } from '../core/slug';
-import type { Project, Report, Run, Task } from '../core/types';
+import type {
+  AgentRole,
+  PipelineStage,
+  Project,
+  Report,
+  Run,
+  Task,
+} from '../core/types';
 import { readProjectConfig } from '../config/config';
 import type { ResolvedContext } from '../config/config';
 import { ensureWorktree, removeWorktree } from '../git/worktree';
@@ -20,26 +27,34 @@ import {
 } from '../protocol/report';
 import type { Store } from '../store/store';
 
-export interface RunTaskOptions {
+export interface RunStageOptions {
   taskId: string;
   harnessId: string;
+  role?: AgentRole;
+  stage?: PipelineStage;
+  continuePipeline?: boolean;
+  keepTaskRunning?: boolean;
+  developerReportPath?: string;
+  agent?: string;
+  model?: string;
   timeoutSeconds?: number;
   env: Record<string, string>;
   quiet?: boolean;
 }
 
-export interface RunTaskResult {
+export interface RunStageResult {
   task: Task;
   run: Run;
   report: Report | null;
   process: ProcessResult;
+  reportPath: string;
 }
 
-export async function runTask(
+export async function runStage(
   store: Store,
   context: ResolvedContext,
-  options: RunTaskOptions,
-): Promise<RunTaskResult> {
+  options: RunStageOptions,
+): Promise<RunStageResult> {
   const initialTask = store.getTaskOrThrow(options.taskId);
   const project = store.getProject(initialTask.projectId);
   if (!project) {
@@ -49,6 +64,8 @@ export async function runTask(
     throw new Error(`Task ${initialTask.id} already has an active run`);
   }
 
+  const role: AgentRole = options.role ?? 'developer';
+  const stage: PipelineStage = options.stage ?? 'develop';
   const harnessId = resolveHarnessId(options.harnessId);
   const harness = getHarness(harnessId);
   const availability = assertHarnessAvailable(harness);
@@ -63,10 +80,10 @@ export async function runTask(
   const runId = newId('run');
   const runDir = path.join(taskDir, 'runs', runId);
   const logPath = path.join(runDir, 'run.jsonl');
-  const briefDataPath = path.join(taskDir, `brief-${attempt}.md`);
+  const briefDataPath = path.join(taskDir, `brief-${runId}.md`);
   const briefPath = path.join(worktreePath, '.crew', 'brief.md');
   const specPath = path.join(worktreePath, '.crew', 'spec.json');
-  const reportPath = path.join(worktreePath, '.crew', 'report.json');
+  const reportPath = path.join(worktreePath, '.crew', 'reports', `${runId}.json`);
 
   mkdirSync(runDir, { recursive: true });
 
@@ -85,6 +102,9 @@ export async function runTask(
       runId,
       attempt,
       harnessId,
+      role,
+      stage,
+      continuePipeline: options.continuePipeline,
       backend: 'process',
       logPath,
       worktreePath,
@@ -107,7 +127,7 @@ export async function runTask(
     throw new Error(`Run not found after start: ${runId}`);
   }
 
-  mkdirSync(path.join(worktreePath, '.crew'), { recursive: true });
+  mkdirSync(path.dirname(reportPath), { recursive: true });
 
   const projectConfig = readProjectConfig(project.rootPath);
   const brief = generateBrief({
@@ -121,6 +141,10 @@ export async function runTask(
     cliCommand: process.env.CREW_BIN ?? 'crew',
     methodology: task.methodology,
     spec: task.spec,
+    role,
+    stage,
+    reviewIteration: task.reviewIterations,
+    developerReportPath: options.developerReportPath,
     verifyCommands: projectConfig?.verify ?? [],
     messages: store.listMessages(task.id),
   });
@@ -137,6 +161,10 @@ export async function runTask(
     CREW_RUN_ID: run.id,
     CREW_PROJECT_ID: project.id,
     CREW_METHODOLOGY: task.methodology,
+    CREW_ROLE: role,
+    CREW_STAGE: stage,
+    CREW_REVIEW_ITERATION: String(task.reviewIterations),
+    CREW_DEVELOPER_REPORT_PATH: options.developerReportPath ?? '',
     CREW_WORKTREE: worktreePath,
     CREW_BRIEF_PATH: briefPath,
     CREW_SPEC_PATH: specPath,
@@ -153,6 +181,9 @@ export async function runTask(
     brief,
     reportPath,
     dbPath: store.dbPath,
+    role,
+    agent: options.agent,
+    model: options.model,
     env: options.env,
   });
 
@@ -198,6 +229,8 @@ export async function runTask(
           taskId: task.id,
           runId: run.id,
           methodology: task.methodology,
+          role,
+          reviewIteration: task.reviewIterations,
         });
         const payload = validateReport(redactDeep(normalized));
         report = store.recordReport(payload);
@@ -213,6 +246,7 @@ export async function runTask(
     signal: processResult.signal,
     timedOut: processResult.timedOut,
     reportError,
+    keepTaskRunning: options.keepTaskRunning,
   });
   const finalRun = store.getRun(run.id) ?? run;
 
@@ -221,6 +255,7 @@ export async function runTask(
     run: finalRun,
     report: report ?? store.getReportByRun(run.id),
     process: processResult,
+    reportPath,
   };
 }
 

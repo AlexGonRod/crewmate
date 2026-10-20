@@ -14,21 +14,90 @@
     "worktree_path",
     "branch",
     "base_branch",
-    "delivery_mode"
+    "delivery_mode",
+    "methodology",
+    "role",
+    "stage",
+    "review_iteration"
   ],
   "properties": {
-    "schema": { "const": "crew.brief/v1" },
-    "task_id": { "type": "string", "pattern": "^tsk_" },
-    "run_id": { "type": "string", "pattern": "^run_" },
-    "attempt": { "type": "integer", "minimum": 1 },
-    "project_id": { "type": "string", "pattern": "^prj_" },
-    "repo_path": { "type": "string", "minLength": 1 },
-    "worktree_path": { "type": "string", "minLength": 1 },
-    "branch": { "type": "string", "minLength": 1 },
-    "base_branch": { "type": "string", "minLength": 1 },
+    "schema": {
+      "const": "crew.brief/v1"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^tsk_"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^run_"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "project_id": {
+      "type": "string",
+      "pattern": "^prj_"
+    },
+    "repo_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "worktree_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "base_branch": {
+      "type": "string",
+      "minLength": 1
+    },
     "delivery_mode": {
       "type": "string",
-      "enum": ["local", "pr", "auto_merge", "scout"]
+      "enum": [
+        "local",
+        "pr",
+        "auto_merge",
+        "scout"
+      ]
+    },
+    "methodology": {
+      "type": "string",
+      "enum": [
+        "free",
+        "spec",
+        "tdd"
+      ]
+    },
+    "spec_schema": {
+      "type": "string",
+      "enum": [
+        "crew.spec/v1"
+      ]
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "developer",
+        "tester"
+      ]
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "develop",
+        "test",
+        "git",
+        "review"
+      ]
+    },
+    "review_iteration": {
+      "type": "integer",
+      "minimum": 0
     }
   }
 }

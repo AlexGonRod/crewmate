@@ -1,10 +1,11 @@
 # crew
 
 Orquestador de múltiples agentes agnóstico al lenguaje. Esta entrega cubre la
-**Fase 0** y parte de la **Fase 1**: metodología de desarrollo declarativa
-(`free`, `spec`, `tdd`), ejecución con harness reales (`opencode`) con detección
-automática, y un daemon con lease que procesa la cola y reconcilia runs
-perdidos. El núcleo sigue siendo pequeño y verificado.
+**Fase 0** y la **Fase 1**: metodología de desarrollo declarativa
+(`free`, `spec`, `tdd`), pipeline developer → tester → git/PR, ejecución con
+harness reales (`opencode`) con detección automática, y un daemon con lease que
+procesa la cola y reconcilia runs perdidos. El núcleo sigue siendo pequeño y
+verificado.
 
 El diseño combina dos ideas:
 
@@ -15,30 +16,34 @@ El diseño combina dos ideas:
 
 ## Estado
 
-Fase 0 completada y Fase 1 en curso:
+Fase 0 completada y pipeline de Fase 1 implementado:
 
 - Proyectos registrados y tareas con estado durable en SQLite.
 - Worktree aislado por tarea.
 - Metodologías `free`, `spec` y `tdd`, con gates de evidencia.
-- Brief generado y contratos de reporte `crew.report/v1` y `crew.report/v2`.
+- Pipeline developer → tester independiente → commit → revisión humana.
+- Briefs por rol y contratos de reporte `crew.report/v1`, v2 y v3.
+- Rechazo del tester con feedback y límite configurable de iteraciones.
+- Entrega `local` o `pr` (GitHub mediante `gh`); `task accept` exige PR mergeado
+  salvo `--force`.
 - Harness `opencode` real, además del agente falso.
 - Detección de binarios, `--harness auto` y `crew harness list`.
 - Cola de tareas y daemon con lease único, heartbeat y parada ordenada.
 - Reconciliación de runs perdidos y `task retry` explícito.
-- Agente falso con escenarios de éxito, fallo, bloqueo, input, crash,
-  reporte malformado, progreso y timeout.
+- Agente falso con escenarios de desarrollador y tester.
 - CLI con salida humana y `--json`.
 - Event log append-only y `doctor`.
 - Tests unitarios y e2e.
 
-Fuera de alcance todavía: PTY, provisioning, review, PRs, merge, memoria, UI
-web, hosts remotos y daemon como servicio del sistema (systemd/launchd).
+Fuera de alcance todavía: PTY, provisioning, merge automático, memoria, UI web,
+hosts remotos y daemon como servicio del sistema (systemd/launchd).
 
 ## Requisitos
 
 - Node.js >= 24 (probado con Node 26, que incluye `node:sqlite`).
 - pnpm.
 - git.
+- `gh` autenticado solo si se usa `--delivery pr`.
 - tmux (opcional, para fases posteriores).
 
 ## Instalación
@@ -62,6 +67,7 @@ pnpm crew --json task create \
   --acceptance "El fichero tiene contenido"
 pnpm crew --json task run tsk_... --harness fake --env CREW_FAKE_SCENARIO=spec_success
 pnpm crew --json task show tsk_...
+pnpm crew --json task accept tsk_...
 pnpm crew task clean tsk_... --force
 ```
 
@@ -75,16 +81,18 @@ pnpm crew task clean tsk_... --force
 | `crew project add <path> [--name]` | Registra un repositorio |
 | `crew project list` | Lista proyectos |
 | `crew harness list` | Lista harnesses, disponibilidad y capacidades |
-| `crew task create --project <ref> --title <t> (--brief <texto> \| --brief-file <path> \| --spec-file <path>) [--methodology free\|spec\|tdd] [--acceptance <texto>] [--non-goal <texto>] [--delivery local]` | Crea una tarea en `draft` |
+| `crew task create --project <ref> --title <t> (--brief <texto> \| --brief-file <path> \| --spec-file <path>) [--methodology free\|spec\|tdd] [--acceptance <texto>] [--non-goal <texto>] [--delivery local\|pr]` | Crea una tarea en `draft` |
 | `crew task list [--state <state>]` | Lista tareas |
 | `crew task show <id>` | Detalle, runs, reporte, mensajes, artefactos y eventos |
-| `crew task run <id> [--harness fake\|opencode\|auto] [--timeout <s>] [--env K=V] [--quiet]` | Ejecuta la tarea en un worktree |
+| `crew task run <id> [--harness <id>] [--tester-harness <id>] [--agent <n>] [--model <n>] [--tester-agent <n>] [--tester-model <n>] [--max-iterations <n>] [--delivery local\|pr] [--timeout <s>] [--env K=V] [--quiet]` | Ejecuta el pipeline en un worktree |
 | `crew task queue <id>` | Encola una tarea en `draft` para el daemon |
 | `crew task retry <id>` | Reencola una tarea `failed` |
 | `crew task answer <id> --text <texto>` | Responde y encola un nuevo intento |
 | `crew task cancel <id>` | Cancela la tarea y su proceso activo |
 | `crew task clean <id> [--force]` | Elimina el worktree; nunca borra la rama |
-| `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--harness <id>] [--quiet]` | Procesa la cola de tareas |
+| `crew task accept <id> [--force]` | Acepta una tarea en `review`; con `pr`, verifica que el PR esté mergeado |
+| `crew task reject <id> [motivo...] [--reason <texto>]` | Rechaza, guarda feedback y reencola al developer |
+| `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
 | `crew daemon reconcile [--stale-after <s>]` | Marca runs muertos como perdidos y falla sus tareas |
 | `crew report --task <id> --run <id> [--file <path\|->] [--status <s>] [--summary <t>]` | Registra un reporte |
@@ -92,10 +100,10 @@ pnpm crew task clean tsk_... --force
 | `crew doctor` | Comprueba base de datos, harnesses, runs, worktrees y proyectos |
 | `crew version` | Muestra la versión |
 
-Códigos de salida de `task run`: `0` si la tarea termina en `done`, `2` si queda
-en `waiting_input` o `blocked`, `1` para `failed`/`cancelled`. En
-`daemon run --once` el código es `1` si la tarea procesada no termina en `done`;
-en modo continuo sale con `0` tras una parada ordenada.
+Códigos de salida de `task run`: `0` si la tarea termina en `review` o `done`,
+`2` si queda en `waiting_input` o `blocked`, `1` para `failed`/`cancelled`. En
+`daemon run --once` el código es `1` si la tarea procesada no termina en
+`review`/`done`; en modo continuo sale con `0` tras una parada ordenada.
 
 ## Harnesses
 
@@ -116,11 +124,50 @@ El harness por defecto se puede fijar en `~/.config/crew/config.yaml`:
 ```yaml
 harness: opencode
 timeout_seconds: 1800
+agents:
+  developer:
+    harness: opencode
+    # agent: build
+    # model: provider/model
+  tester:
+    harness: opencode
+review:
+  max_iterations: 3
+delivery: local
 ```
 
 `opencode` se lanza con `--auto` para que pueda editar el worktree sin
 confirmaciones interactivas. Las reglas de permisos que el usuario haya denegado
 explícitamente en su configuración de opencode se siguen respetando.
+
+## Pipeline de desarrollo
+
+`task run` y el daemon ejecutan el mismo pipeline:
+
+1. **Developer**: implementa en el worktree y emite un reporte v1/v2.
+2. **Tester**: agente independiente, solo lectura, revisa el diff, ejecuta la
+   verificación y emite un reporte `crew.report/v3` con `approve` o `reject`.
+3. **Git**: si el tester aprueba, se hace commit de los cambios.
+4. **Delivery**:
+   - `local`: la rama queda lista para revisión local.
+   - `pr`: se hace push y se abre un PR en GitHub con `gh`.
+5. **Review**: la tarea queda en `review`. `task reject` reencola al developer con
+   el feedback; `task accept` la marca `done`.
+
+El tester rechaza con `status: failed` y al menos un `finding` de severidad
+`blocking`. El feedback se guarda como mensaje `review_feedback` y aparece en el
+siguiente brief del developer. Tras `review.max_iterations` rechazos (3 por
+defecto) la tarea falla y requiere `task retry`.
+
+Con `--delivery pr`, `task accept` consulta el estado real del PR:
+
+```sh
+pnpm crew --json task accept tsk_...
+# error PR_NOT_MERGED si sigue abierto
+pnpm crew --json task accept tsk_... --force
+```
+
+`auto_merge` y `scout` se rechazan explícitamente con `DELIVERY_UNSUPPORTED`.
 
 ## Daemon
 
@@ -152,6 +199,8 @@ la reconciliación lo detecta y falla la tarea en lugar de dejarla colgada.
 Cada tarea declara cómo debe trabajar el agente:
 
 - `free`: brief libre y reporte `crew.report/v1` o v2. Compatible con Fase 0.
+- El tester siempre usa `crew.report/v3`; su veredicto no sustituye los gates de
+  evidencia del developer.
 - `spec`: la tarea requiere una spec `crew.spec/v1` con criterios de aceptación.
   Para `done`, el reporte v2 debe incluir evidencia `passed` para cada criterio.
 - `tdd`: además de la spec, exige evidencia de las fases `red` y `green` en
@@ -184,17 +233,17 @@ pnpm crew --json task create \
 ```
 
 Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
-La evidencia es autodeclarada: la verificación independiente de tests queda para
-una fase posterior.
+La evidencia del developer es autodeclarada; el tester independiente la revisa
+antes de permitir el commit y el PR.
 
 ## Arquitectura
 
 ```
 CLI
- ├─ app/            casos de uso (projects, run-task, daemon)
+ ├─ app/            casos de uso (projects, run-stage, pipeline, daemon)
  ├─ core/           tipos, IDs ULID, máquina de estados, redacción
  ├─ store/          SQLite: event log + proyecciones
- ├─ git/            worktrees, ramas, preflight
+ ├─ git/            worktrees, commit, GitHub (gh)
  ├─ spec/           carga y validación de specs
  ├─ brief/          briefs estructurados por metodología
  ├─ protocol/       validación del reporte y gates de metodología
@@ -214,7 +263,7 @@ Decisiones clave:
 - **Metodología verificable**: la spec y sus criterios se guardan en SQLite y se
   enforcean al registrar el reporte, no solo en el prompt.
 - **Fail-closed**: sin reporte válido no hay `done`, la evidencia incompleta
-  falla, y `clean` no borra trabajo sucio sin `--force`.
+  falla, el tester debe aprobar, y `clean` no borra trabajo sucio sin `--force`.
 - **Un daemon por base de datos** con lease y heartbeat; la recuperación es
   explícita (`daemon reconcile` + `task retry`), nunca un reencolado silencioso.
 
@@ -222,7 +271,7 @@ Decisiones clave:
 
 En `contracts/`:
 
-- `report.v1.schema.json` y `report.v2.schema.json`
+- `report.v1.schema.json`, `report.v2.schema.json` y `report.v3.schema.json`
 - `spec.v1.schema.json`
 - `brief.v1.schema.json`
 - `harness.v1.schema.json`

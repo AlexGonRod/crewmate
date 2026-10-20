@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { isPidAlive } from '../core/process';
 import { isTerminalTaskState } from '../core/state';
@@ -33,7 +34,7 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
   const version = store.schemaVersion();
   checks.push({
     name: 'database.schema',
-    status: version >= 2 ? 'ok' : 'warn',
+    status: version >= 3 ? 'ok' : 'warn',
     detail: `schema version ${version}`,
   });
 
@@ -59,7 +60,10 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
     }
     const id = adapter.manifest.metadata.id;
     const availability = detectHarness(adapter.manifest);
-    const configured = context.config.harness === id;
+    const configured =
+      context.config.harness === id ||
+      context.config.agents.developer.harness === id ||
+      context.config.agents.tester.harness === id;
     checks.push({
       name: `harness.${id}`,
       status: availability.available ? 'ok' : configured ? 'error' : 'warn',
@@ -69,13 +73,30 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
     });
   }
 
+  for (const role of ['developer', 'tester'] as const) {
+    const configured = context.config.agents[role].harness;
+    if (!configured) {
+      continue;
+    }
+    try {
+      getHarness(configured);
+    } catch (error) {
+      checks.push({
+        name: `agents.${role}.harness`,
+        status: 'error',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   checks.push({
     name: 'paths.data',
     status: existsSync(context.paths.dataDir) ? 'ok' : 'warn',
     detail: context.paths.dataDir,
   });
 
-  for (const project of store.listProjects()) {
+  const projects = store.listProjects();
+  for (const project of projects) {
     try {
       const config = readProjectConfig(project.rootPath);
       if (
@@ -96,6 +117,26 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
         detail: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  const needsGitHub =
+    context.config.delivery === 'pr' ||
+    store.listTasks().some((task) => task.deliveryMode === 'pr') ||
+    projects.some((project) => readProjectConfig(project.rootPath)?.delivery === 'pr');
+  if (needsGitHub) {
+    const result = spawnSync('gh', ['auth', 'status'], {
+      encoding: 'utf8',
+      env: { ...process.env, GH_PROMPT_DISABLED: '1' },
+    });
+    const available = !result.error && result.status === 0;
+    checks.push({
+      name: 'github.cli',
+      status: available ? 'ok' : 'error',
+      detail: available
+        ? 'gh is installed and authenticated'
+        : result.error?.message ??
+          (result.stderr || result.stdout || 'gh auth status failed').trim(),
+    });
   }
 
   const lease = store.getLease('daemon');

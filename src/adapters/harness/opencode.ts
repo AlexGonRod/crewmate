@@ -34,23 +34,24 @@ export class OpencodeHarness implements HarnessAdapter {
     args: string[];
     env: Record<string, string | undefined>;
   } {
+    const args = ['run', '--format', 'json', '--auto'];
+    if (spec.agent) {
+      args.push('--agent', spec.agent);
+    }
+    if (spec.model) {
+      args.push('--model', spec.model);
+    }
+    args.push('--title', spec.task.title, spec.brief);
     return {
       command: 'opencode',
-      args: [
-        'run',
-        '--format',
-        'json',
-        '--auto',
-        '--title',
-        spec.task.title,
-        spec.brief,
-      ],
+      args,
       env: {
         ...process.env,
         ...spec.env,
         CREW_TASK_ID: spec.task.id,
         CREW_RUN_ID: spec.run.id,
         CREW_PROJECT_ID: spec.project.id,
+        CREW_ROLE: spec.role,
         CREW_WORKTREE: spec.worktreePath,
         CREW_BRIEF_PATH: spec.briefPath,
         CREW_REPORT_PATH: spec.reportPath,

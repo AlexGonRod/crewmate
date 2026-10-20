@@ -14,11 +14,11 @@ comandos CLI pueden compartir la misma base de datos.
   `TTL/3`, también durante tareas largas. Si el lease está ocupado, se falla con
   `DAEMON_RUNNING`.
 - **Ejecución secuencial en proceso**: el daemon toma la siguiente tarea
-  `queued` (prioridad descendente, `created_at` ascendente) y llama a `runTask`
+  `queued` (prioridad descendente, `created_at` ascendente) y llama a `runPipeline`
   dentro del mismo proceso. El agente sigue corriendo en su propio grupo de
   procesos y su PID queda registrado en `runs`.
 - **Cola explícita**: `task create` deja la tarea en `draft`; `task queue` la
-  pasa a `queued`. Un fallo de arranque del daemon (`runTask` lanza) marca la
+  pasa a `queued`. Un fallo de arranque del daemon (`runPipeline` lanza) marca la
   tarea como `failed` para evitar un bucle de reintentos.
 - **Reconciliación**: al arrancar y en cada ciclo se revisan los runs activos.
   Un run con PID muerto se marca `lost`; un run sin PID se considera perdido

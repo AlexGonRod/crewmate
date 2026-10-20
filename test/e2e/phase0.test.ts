@@ -163,14 +163,21 @@ describe('phase 0 walking skeleton', () => {
     const id = createTask('Fake success');
     const result = runTask(id, 'success');
     expect(result.status, result.stderr).toBe(0);
-    expect(result.json.task.state).toBe('done');
-    expect(result.json.report.status).toBe('done');
-    expect(result.json.run.state).toBe('exited');
-    expect(result.json.process.exit_code).toBe(0);
+    expect(result.json.task.state).toBe('review');
+    expect(result.json.developerReport.status).toBe('done');
+    expect(result.json.testerReport.payload.verdict).toBe('approve');
+    expect(result.json.runs.at(-1).state).toBe('exited');
+    expect(result.json.runs.at(-1).exitCode).toBe(0);
+    expect(result.json.commitSha).toBeTruthy();
+
+    const accepted = cli(['--json', 'task', 'accept', id]);
+    expect(accepted.status, accepted.stderr).toBe(0);
+    expect(accepted.json.task.state).toBe('done');
 
     const worktree = result.json.task.worktreePath as string;
     expect(existsSync(path.join(worktree, 'FAKE_AGENT_OUTPUT.txt'))).toBe(true);
     expect(existsSync(path.join(worktree, '.crew', 'brief.md'))).toBe(true);
+    writeFileSync(path.join(worktree, 'dirty.txt'), 'dirty\n');
 
     const refused = cli(['task', 'clean', id]);
     expect(refused.status).toBe(1);
@@ -228,8 +235,12 @@ describe('phase 0 walking skeleton', () => {
 
     const second = runTask(id, 'success');
     expect(second.status, second.stderr).toBe(0);
-    expect(second.json.task.state).toBe('done');
-    expect(second.json.run.attempt).toBe(2);
+    expect(second.json.task.state).toBe('review');
+    const developerRuns = (second.json.runs as Array<{ role: string; attempt: number }>).filter(
+      (run) => run.role === 'developer',
+    );
+    expect(developerRuns.at(-1)?.attempt).toBe(2);
+    expect(cli(['--json', 'task', 'accept', id]).json.task.state).toBe('done');
 
     const shown = cli(['--json', 'task', 'show', id]);
     expect(shown.json.messages.some((message: { body: string }) =>
@@ -244,7 +255,7 @@ describe('phase 0 walking skeleton', () => {
     const elapsed = Date.now() - started;
     expect(result.status).toBe(1);
     expect(result.json.task.state).toBe('failed');
-    expect(result.json.process.timed_out).toBe(true);
+    expect(result.json.runs.at(-1).state).toBe('failed');
     expect(elapsed).toBeLessThan(20_000);
   });
 
@@ -369,7 +380,7 @@ describe('phase 0 walking skeleton', () => {
 
     const result = runTask(created.json.task.id as string, 'spec_success');
     expect(result.status, result.stderr).toBe(0);
-    expect(result.json.task.state).toBe('done');
+    expect(result.json.task.state).toBe('review');
   });
 
   it('runs a spec task and records acceptance evidence', () => {
@@ -379,14 +390,13 @@ describe('phase 0 walking skeleton', () => {
     ]);
     const result = runTask(id, 'spec_success');
     expect(result.status, result.stderr).toBe(0);
-    expect(result.json.task.state).toBe('done');
-    expect(result.json.report.schema).toBe('crew.report/v2');
-    expect(result.json.report.payload.acceptance).toHaveLength(2);
+    expect(result.json.task.state).toBe('review');
+    expect(result.json.developerReport.schema).toBe('crew.report/v2');
+    expect(result.json.developerReport.payload.acceptance).toHaveLength(2);
 
     const shown = cli(['--json', 'task', 'show', id]);
     expect(shown.status, shown.stderr).toBe(0);
     expect(shown.json.task.methodology).toBe('spec');
-    expect(shown.json.report.payload.acceptance[0].criterion_id).toBe('AC1');
   });
 
   it('fails a spec task when acceptance evidence is missing', () => {
@@ -411,11 +421,10 @@ describe('phase 0 walking skeleton', () => {
     const id = createSpecTask('TDD success', 'tdd', ['The marker file exists']);
     const result = runTask(id, 'tdd_success');
     expect(result.status, result.stderr).toBe(0);
-    expect(result.json.task.state).toBe('done');
-    expect(result.json.report.payload.tests.map((test: { phase: string }) => test.phase)).toEqual([
-      'red',
-      'green',
-    ]);
+    expect(result.json.task.state).toBe('review');
+    expect(
+      result.json.developerReport.payload.tests.map((test: { phase: string }) => test.phase),
+    ).toEqual(['red', 'green']);
   });
 
   it('fails a tdd task without a red phase', () => {
@@ -454,13 +463,13 @@ describe('phase 0 walking skeleton', () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.json.stopped).toBe('once');
     expect(result.json.processed).toHaveLength(1);
-    expect(result.json.processed[0].taskState).toBe('done');
+    expect(result.json.processed[0].taskState).toBe('review');
     expect(result.json.processed[0].reportStatus).toBe('done');
 
     const statusAfter = cli(['--json', 'daemon', 'status']);
     expect(statusAfter.json.queued_tasks).toBe(0);
     expect(statusAfter.json.lease).toBeNull();
-    expect(cli(['--json', 'task', 'show', id]).json.task.state).toBe('done');
+    expect(cli(['--json', 'task', 'accept', id]).json.task.state).toBe('done');
   });
 
   it('reclaims stale runs and retries the failed task', () => {
@@ -501,8 +510,64 @@ describe('phase 0 walking skeleton', () => {
       '--quiet',
     ]);
     expect(result.status, result.stderr).toBe(0);
-    expect(result.json.processed[0].taskState).toBe('done');
-    expect(cli(['--json', 'task', 'show', id]).json.task.state).toBe('done');
+    expect(result.json.processed[0].taskState).toBe('review');
+    expect(cli(['--json', 'task', 'accept', id]).json.task.state).toBe('done');
+  });
+
+  it('rejects unsupported delivery modes before starting an agent', () => {
+    const id = createTask('Unsupported delivery', 'Do the thing', [
+      '--methodology',
+      'free',
+      '--delivery',
+      'auto_merge',
+    ]);
+    const result = runTask(id, 'success');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('DELIVERY_UNSUPPORTED');
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    expect(shown.json.task.state).toBe('draft');
+    expect(shown.json.runs).toHaveLength(0);
+  });
+
+  it('requeues after tester rejection and fails at the iteration limit', () => {
+    const id = createTask('Tester rejection');
+    const rejected = runTask(id, 'success', [
+      '--env',
+      'CREW_FAKE_TESTER_SCENARIO=tester_reject',
+    ]);
+    expect(rejected.status).toBe(1);
+    expect(rejected.json.task.state).toBe('queued');
+    expect(rejected.json.task.reviewIterations).toBe(1);
+
+    for (let iteration = 2; iteration <= 3; iteration += 1) {
+      const next = runTask(id, 'success', [
+        '--env',
+        'CREW_FAKE_TESTER_SCENARIO=tester_reject',
+      ]);
+      expect(next.status).toBe(1);
+      expect(next.json.task.state).toBe('queued');
+      expect(next.json.task.reviewIterations).toBe(iteration);
+    }
+
+    const exhausted = runTask(id, 'success', [
+      '--env',
+      'CREW_FAKE_TESTER_SCENARIO=tester_reject',
+    ]);
+    expect(exhausted.status).toBe(1);
+    expect(exhausted.json.task.state).toBe('failed');
+    expect(exhausted.json.task.reviewIterations).toBe(4);
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    expect(
+      shown.json.messages.filter(
+        (message: { kind: string }) => message.kind === 'review_feedback',
+      ),
+    ).toHaveLength(4);
+    const failed = shown.json.events.find(
+      (event: { type: string }) => event.type === 'task.failed',
+    );
+    expect(failed.payload.reason).toContain('Review rejected 4 times');
   });
 
   it('keeps the main checkout free of tracked changes', () => {

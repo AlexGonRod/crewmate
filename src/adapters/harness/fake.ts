@@ -46,6 +46,7 @@ export class FakeHarness implements HarnessAdapter {
         CREW_TASK_ID: spec.task.id,
         CREW_RUN_ID: spec.run.id,
         CREW_PROJECT_ID: spec.project.id,
+        CREW_ROLE: spec.role,
         CREW_WORKTREE: spec.worktreePath,
         CREW_BRIEF_PATH: spec.briefPath,
         CREW_REPORT_PATH: spec.reportPath,

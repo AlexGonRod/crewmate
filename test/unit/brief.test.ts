@@ -18,6 +18,8 @@ const run: Run = {
   taskId: newId('tsk'),
   attempt: 1,
   harnessId: 'fake',
+  role: 'developer',
+  stage: 'develop',
   backend: 'process',
   state: 'running',
   pid: null,
@@ -39,6 +41,10 @@ function makeTask(
     briefText: 'Do the thing',
     methodology,
     spec,
+    stage: 'develop',
+    reviewIterations: 0,
+    commitSha: null,
+    prUrl: null,
     state: 'running',
     deliveryMode: 'local',
     baseBranch: 'main',
@@ -53,11 +59,15 @@ function makeTask(
   };
 }
 
-function makeBrief(task: Task): string {
+function makeBrief(
+  task: Task,
+  options: { role?: 'developer' | 'tester'; reviewIteration?: number } = {},
+): string {
+  const role = options.role ?? 'developer';
   return generateBrief({
     task,
     project,
-    run,
+    run: { ...run, role },
     attempt: 1,
     reportPath: '/tmp/worktree/.crew/report.json',
     briefPath: '/tmp/worktree/.crew/brief.md',
@@ -65,6 +75,11 @@ function makeBrief(task: Task): string {
     cliCommand: 'crew',
     methodology: task.methodology,
     spec: task.spec,
+    role,
+    stage: role === 'tester' ? 'test' : 'develop',
+    reviewIteration: options.reviewIteration ?? task.reviewIterations,
+    developerReportPath:
+      role === 'tester' ? '/tmp/worktree/.crew/reports/dev-run.json' : undefined,
     verifyCommands: ['pnpm test'],
     messages: [],
   });
@@ -96,6 +111,22 @@ describe('brief generation', () => {
     expect(brief).toContain('## Methodology: spec');
     expect(brief).toContain('crew.report/v2');
     expect(brief).toContain('CREW_SPEC_PATH');
+  });
+
+  it('renders a read-only v3 brief for the tester', () => {
+    const brief = makeBrief(makeTask('tdd', spec), {
+      role: 'tester',
+      reviewIteration: 1,
+    });
+    expect(brief).toContain('role: "tester"');
+    expect(brief).toContain('stage: "test"');
+    expect(brief).toContain('review_iteration: 1');
+    expect(brief).toContain('## Role: Tester');
+    expect(brief).toContain('crew.report/v3');
+    expect(brief).toContain('"verdict": "approve"');
+    expect(brief).toContain('CREW_DEVELOPER_REPORT_PATH` = /tmp/worktree/.crew/reports/dev-run.json');
+    expect(brief).toContain('Do not modify source files');
+    expect(brief).not.toContain('## Methodology: TDD');
   });
 
   it('adds red-green-refactor instructions for tdd', () => {

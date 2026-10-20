@@ -1,4 +1,4 @@
-import type { Project, Run, Task } from '../../core/types';
+import type { AgentRole, Project, Run, Task } from '../../core/types';
 
 export interface HarnessManifest {
   apiVersion: 'crew.dev/v1';
@@ -43,6 +43,9 @@ export interface LaunchSpec {
   brief: string;
   reportPath: string;
   dbPath: string;
+  role: AgentRole;
+  agent?: string;
+  model?: string;
   env: Record<string, string>;
 }
 

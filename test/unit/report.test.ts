@@ -104,6 +104,28 @@ describe('report protocol', () => {
     expect(normalized.methodology).toBe('spec');
   });
 
+  it('accepts and normalizes a tester v3 report', () => {
+    const taskId = newId('tsk');
+    const runId = newId('run');
+    const normalized = normalizeReport(
+      {
+        schema: 'crew.report/v3',
+        task_id: taskId,
+        run_id: runId,
+        methodology: 'free',
+        role: 'tester',
+        verdict: 'approve',
+        status: 'done',
+        summary: 'Looks good',
+      },
+      { taskId, runId, role: 'tester', reviewIteration: 2, methodology: 'free' },
+    );
+    const report = validateReport(normalized);
+    expect(report.role).toBe('tester');
+    expect(report.verdict).toBe('approve');
+    expect(report.review_iteration).toBe(2);
+  });
+
   it('extracts the last fenced report block', () => {
     const report = validReport();
     const output = [

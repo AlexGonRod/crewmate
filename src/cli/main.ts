@@ -7,7 +7,7 @@ import { runDaemon, type DaemonTaskResult } from '../app/daemon';
 import { addProject, initProject } from '../app/projects';
 import { detectHarness } from '../adapters/harness/detect';
 import { listHarnessAdapters } from '../adapters/harness/registry';
-import { runTask } from '../app/run-task';
+import { runPipeline } from '../app/pipeline';
 import { loadContext, readProjectConfig, type ResolvedContext } from '../config/config';
 import { CrewError, errorMessage } from '../core/errors';
 import { isPidAlive, terminateProcessTree } from '../core/process';
@@ -15,6 +15,7 @@ import { redactDeep } from '../core/redact';
 import type { DeliveryMode, TaskSpec, TaskState } from '../core/types';
 import { runDoctor } from '../doctor/doctor';
 import { removeWorktree } from '../git/worktree';
+import { viewPullRequest } from '../git/forge';
 import {
   normalizeReport,
   parseReportText,
@@ -147,6 +148,9 @@ function renderTaskDetail(detail: ReturnType<Store['getTaskDetail']>): void {
   console.log(`Branch:    ${task.branch ?? '-'}`);
   console.log(`Worktree:  ${task.worktreePath ?? '-'}`);
   console.log(`Harness:   ${task.harnessId ?? '-'}`);
+  console.log(`Stage:     ${task.stage} (review iterations: ${task.reviewIterations})`);
+  console.log(`Commit:    ${task.commitSha ?? '-'}`);
+  console.log(`PR:        ${task.prUrl ?? '-'}`);
   console.log(`Delivery:  ${task.deliveryMode}`);
   console.log(`Method:    ${task.methodology}`);
   console.log(`Created:   ${task.createdAt}`);
@@ -158,9 +162,15 @@ function renderTaskDetail(detail: ReturnType<Store['getTaskDetail']>): void {
     }
   }
   if (detail.report) {
+    const verdict = detail.report.payload.verdict
+      ? ` (${detail.report.payload.verdict})`
+      : '';
     console.log(
-      `Report:    ${detail.report.status} - ${detail.report.summary}`,
+      `Report:    ${detail.report.status}${verdict} - ${detail.report.summary}`,
     );
+    for (const finding of detail.report.payload.findings ?? []) {
+      console.log(`  [${finding.severity}] ${finding.message}`);
+    }
     for (const evidence of detail.report.payload.acceptance ?? []) {
       console.log(
         `  ${evidence.criterion_id}: ${evidence.status} - ${evidence.evidence}`,
@@ -190,7 +200,7 @@ function renderTaskDetail(detail: ReturnType<Store['getTaskDetail']>): void {
 }
 
 function taskRunExitCode(state: TaskState): number {
-  if (state === 'done') {
+  if (state === 'done' || state === 'review') {
     return 0;
   }
   if (state === 'waiting_input' || state === 'blocked') {
@@ -321,7 +331,7 @@ function buildProgram(): Command {
     .option('--spec-file <path>', 'read a crew.spec/v1 JSON or YAML file')
     .option('--acceptance <text>', 'acceptance criterion (repeatable)', collect, [])
     .option('--non-goal <text>', 'non-goal (repeatable)', collect, [])
-    .option('--delivery <mode>', 'local, pr, auto_merge, or scout', 'local')
+    .option('--delivery <mode>', 'local, pr, auto_merge, or scout')
     .action(
       async (options: {
         project: string;
@@ -332,15 +342,17 @@ function buildProgram(): Command {
         specFile?: string;
         acceptance: string[];
         nonGoal: string[];
-        delivery: string;
+        delivery?: string;
       }) => {
-        const deliveryMode = parseDeliveryMode(options.delivery);
-        const created = await withStore((store) => {
+        const created = await withStore((store, context) => {
           const selected = store.getProject(options.project);
           if (!selected) {
             throw new CrewError('PROJECT_NOT_FOUND', `Project not found: ${options.project}`);
           }
           const projectConfig = readProjectConfig(selected.rootPath);
+          const deliveryMode = options.delivery
+            ? parseDeliveryMode(options.delivery)
+            : projectConfig?.delivery ?? context.config.delivery;
           const explicitMethodology = options.methodology
             ? parseMethodology(options.methodology)
             : undefined;
@@ -420,15 +432,21 @@ function buildProgram(): Command {
           tasks.map((item) => ({
             id: item.id,
             state: item.state,
+            stage: item.stage,
+            iterations: item.reviewIterations,
             title: item.title,
             harness: item.harnessId ?? '-',
+            pr: item.prUrl ? 'yes' : '-',
             updated: item.updatedAt,
           })),
           [
             { key: 'id', label: 'ID' },
             { key: 'state', label: 'STATE' },
+            { key: 'stage', label: 'STAGE' },
+            { key: 'iterations', label: 'ITER' },
             { key: 'title', label: 'TITLE' },
             { key: 'harness', label: 'HARNESS' },
+            { key: 'pr', label: 'PR' },
             { key: 'updated', label: 'UPDATED' },
           ],
         );
@@ -450,7 +468,14 @@ function buildProgram(): Command {
   task
     .command('run <id>')
     .description('run a task in an isolated worktree')
-    .option('--harness <id>', 'harness adapter: fake, opencode, or auto')
+    .option('--harness <id>', 'developer harness adapter: fake, opencode, or auto')
+    .option('--tester-harness <id>', 'tester harness adapter')
+    .option('--agent <name>', 'developer agent name for the harness')
+    .option('--model <name>', 'developer model for the harness')
+    .option('--tester-agent <name>', 'tester agent name for the harness')
+    .option('--tester-model <name>', 'tester model for the harness')
+    .option('--max-iterations <n>', 'maximum tester rejections before failing', Number)
+    .option('--delivery <mode>', 'override the delivery mode')
     .option('--timeout <seconds>', 'timeout in seconds', Number)
     .option('--env <key=value>', 'extra environment variable', collect, [])
     .option('--quiet', 'do not stream agent output')
@@ -459,6 +484,13 @@ function buildProgram(): Command {
         id: string,
         options: {
           harness?: string;
+          testerHarness?: string;
+          agent?: string;
+          model?: string;
+          testerAgent?: string;
+          testerModel?: string;
+          maxIterations?: number;
+          delivery?: string;
           timeout?: number;
           env: string[];
           quiet?: boolean;
@@ -466,41 +498,106 @@ function buildProgram(): Command {
       ) => {
         const json = globalOptions().json;
         const result = await withStore((store, context) =>
-          runTask(store, context, {
+          runPipeline(store, context, {
             taskId: id,
-            harnessId: options.harness ?? context.config.harness,
+            developerHarnessId: options.harness ?? context.config.harness,
+            testerHarnessId: options.testerHarness,
+            developerAgent: options.agent,
+            developerModel: options.model,
+            testerAgent: options.testerAgent,
+            testerModel: options.testerModel,
+            maxIterations: options.maxIterations,
+            delivery: options.delivery
+              ? parseDeliveryMode(options.delivery)
+              : undefined,
             timeoutSeconds: options.timeout,
             env: parseEnv(options.env),
             quiet: Boolean(options.quiet || json),
           }),
         );
 
-        const exitCode = taskRunExitCode(result.task.state);
         if (json) {
-          printJson({
-            task: result.task,
-            run: result.run,
-            report: result.report,
-            process: {
-              exit_code: result.process.exitCode,
-              signal: result.process.signal,
-              timed_out: result.process.timedOut,
-            },
-          });
+          printJson(result);
         } else {
-          console.log(`Run ${result.run.id} finished`);
+          const lastRun = result.runs.at(-1);
+          if (lastRun) {
+            console.log(`Run ${lastRun.id} finished (${lastRun.role}/${lastRun.stage})`);
+          }
           console.log(`Task ${result.task.id}: ${stateLabel(result.task.state)}`);
-          if (result.report) {
-            console.log(`Report: ${result.report.status} - ${result.report.summary}`);
-          } else {
-            console.log('Report: none');
+          console.log(`Stage: ${result.stage} (review iterations: ${result.task.reviewIterations})`);
+          if (result.developerReport) {
+            console.log(
+              `Developer: ${result.developerReport.status} - ${result.developerReport.summary}`,
+            );
+          }
+          if (result.testerReport) {
+            console.log(
+              `Tester: ${result.testerReport.payload.verdict ?? result.testerReport.status} - ${result.testerReport.summary}`,
+            );
+          }
+          if (result.commitSha) {
+            console.log(`Commit: ${result.commitSha}`);
+          }
+          if (result.prUrl) {
+            console.log(`PR: ${result.prUrl}`);
+          }
+          if (result.error) {
+            console.log(`Error: ${result.error}`);
           }
         }
-        if (result.task.state !== 'done') {
-          process.exitCode = exitCode;
+        if (result.task.state !== 'done' && result.task.state !== 'review') {
+          process.exitCode = taskRunExitCode(result.task.state);
         }
       },
     );
+
+  task
+    .command('accept <id>')
+    .description('accept a reviewed task after its PR is merged')
+    .option('--force', 'accept even when the pull request is not merged')
+    .action(async (id: string, options: { force?: boolean }) => {
+      const updated = await withStore((store) => {
+        const task = store.getTaskOrThrow(id);
+        if (task.deliveryMode === 'pr' && !options.force) {
+          const project = store.getProject(task.projectId);
+          if (!project) {
+            throw new CrewError('PROJECT_NOT_FOUND', `Project not found for task ${id}`);
+          }
+          if (!task.prUrl) {
+            throw new CrewError('PR_REQUIRED', `Task ${id} has no pull request to verify`);
+          }
+          const pullRequest = viewPullRequest(project.rootPath, task.prUrl);
+          if (!pullRequest.merged) {
+            throw new CrewError(
+              'PR_NOT_MERGED',
+              `Pull request ${task.prUrl} is ${pullRequest.state}; merge it or use --force`,
+            );
+          }
+        }
+        return store.acceptTask(id);
+      });
+      if (globalOptions().json) {
+        printJson({ task: updated });
+      } else {
+        console.log(`Task ${updated.id} is now ${updated.state}`);
+      }
+    });
+
+  task
+    .command('reject <id> [reason...]')
+    .description('reject a reviewed task and send feedback to the developer')
+    .option('--reason <text>', 'review feedback')
+    .action(async (id: string, reasonParts: string[], options: { reason?: string }) => {
+      const reason = options.reason ?? reasonParts.join(' ');
+      const updated = await withStore((store, context) =>
+        store.rejectReview(id, reason, context.config.review.maxIterations),
+      );
+      if (globalOptions().json) {
+        printJson({ task: updated });
+      } else {
+        console.log(`Task ${updated.id} is now ${updated.state}`);
+      }
+    });
 
   task
     .command('answer <id>')
@@ -592,7 +689,9 @@ function buildProgram(): Command {
     .option('--once', 'process at most one task and exit')
     .option('--interval <seconds>', 'idle poll interval', Number, 5)
     .option('--max-tasks <n>', 'stop after N tasks', Number)
-    .option('--harness <id>', 'harness adapter: fake, opencode, or auto')
+    .option('--harness <id>', 'developer harness adapter: fake, opencode, or auto')
+    .option('--tester-harness <id>', 'tester harness adapter')
+    .option('--max-iterations <n>', 'maximum tester rejections before failing', Number)
     .option('--timeout <seconds>', 'timeout per task', Number)
     .option('--env <key=value>', 'extra environment variable', collect, [])
     .option('--stale-after <seconds>', 'lost-run grace period', Number, 30)
@@ -603,6 +702,8 @@ function buildProgram(): Command {
         interval: number;
         maxTasks?: number;
         harness?: string;
+        testerHarness?: string;
+        maxIterations?: number;
         timeout?: number;
         env: string[];
         staleAfter: number;
@@ -635,6 +736,8 @@ function buildProgram(): Command {
               intervalMs: options.interval * 1000,
               maxTasks: options.maxTasks,
               harnessId: options.harness,
+              testerHarnessId: options.testerHarness,
+              maxIterations: options.maxIterations,
               timeoutSeconds: options.timeout,
               env: parseEnv(options.env),
               quiet: Boolean(options.quiet || json),
@@ -671,7 +774,10 @@ function buildProgram(): Command {
 
           if (
             once &&
-            result.processed.some((entry) => entry.taskState !== 'done')
+            result.processed.some(
+              (entry) =>
+                entry.taskState !== 'done' && entry.taskState !== 'review',
+            )
           ) {
             process.exitCode = 1;
           }
@@ -776,13 +882,18 @@ function buildProgram(): Command {
           );
         }
 
-        const task = await withStore((store) => store.getTaskOrThrow(options.task));
+        const contextInfo = await withStore((store) => {
+          const task = store.getTaskOrThrow(options.task);
+          return { task, run: store.getRun(options.run) };
+        });
         const normalized = normalizeReport(raw, {
           taskId: options.task,
           runId: options.run,
           status: options.status,
           summary: options.summary,
-          methodology: task.methodology,
+          methodology: contextInfo.task.methodology,
+          role: contextInfo.run?.role,
+          reviewIteration: contextInfo.task.reviewIterations,
         });
         const payload = validateReport(redactDeep(normalized));
         if (payload.task_id !== options.task || payload.run_id !== options.run) {

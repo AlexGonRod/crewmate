@@ -29,6 +29,10 @@ function makeTask(): Task {
     briefText: 'Do it',
     methodology: 'free',
     spec: null,
+    stage: 'develop',
+    reviewIterations: 0,
+    commitSha: null,
+    prUrl: null,
     state: 'queued',
     deliveryMode: 'local',
     baseBranch: 'main',
@@ -61,6 +65,8 @@ function makeRun(): Run {
     taskId: 'tsk_test',
     attempt: 1,
     harnessId: 'opencode',
+    role: 'developer',
+    stage: 'develop',
     backend: 'process',
     state: 'starting',
     pid: null,
@@ -148,6 +154,7 @@ describe('opencode adapter', () => {
       brief: 'Implement the health endpoint',
       reportPath: '/tmp/worktree/.crew/report.json',
       dbPath: '/tmp/crew.db',
+      role: 'developer',
       env: { CREW_EXTRA: '1' },
     });
 

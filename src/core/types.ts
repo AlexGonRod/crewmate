@@ -19,6 +19,21 @@ export type DeliveryMode = 'local' | 'pr' | 'auto_merge' | 'scout';
 
 export type Methodology = 'free' | 'spec' | 'tdd';
 
+export type AgentRole = 'developer' | 'tester';
+
+export type PipelineStage = 'develop' | 'test' | 'git' | 'review';
+
+export type ReportVerdict = 'approve' | 'reject';
+
+export type FindingSeverity = 'blocking' | 'warning' | 'info';
+
+export interface ReportFinding {
+  severity: FindingSeverity;
+  message: string;
+  criterion_id?: string;
+  ref?: string;
+}
+
 export type TestPhase = 'red' | 'green' | 'refactor';
 
 export type AcceptanceStatus = 'passed' | 'failed' | 'not_verified';
@@ -55,6 +70,10 @@ export interface Task {
   briefText: string;
   methodology: Methodology;
   spec: TaskSpec | null;
+  stage: PipelineStage;
+  reviewIterations: number;
+  commitSha: string | null;
+  prUrl: string | null;
   state: TaskState;
   deliveryMode: DeliveryMode;
   baseBranch: string;
@@ -73,6 +92,8 @@ export interface Run {
   taskId: string;
   attempt: number;
   harnessId: string;
+  role: AgentRole;
+  stage: PipelineStage;
   backend: string;
   state: RunState;
   pid: number | null;
@@ -109,14 +130,18 @@ export interface ReportQuestion {
 }
 
 export interface ReportPayload {
-  schema: 'crew.report/v1' | 'crew.report/v2';
+  schema: 'crew.report/v1' | 'crew.report/v2' | 'crew.report/v3';
   task_id: string;
   run_id: string;
   methodology?: Methodology;
+  role?: AgentRole;
+  verdict?: ReportVerdict;
+  review_iteration?: number;
   status: ReportStatus;
   summary: string;
   details?: string;
   acceptance?: AcceptanceEvidence[];
+  findings?: ReportFinding[];
   tests?: TestResult[];
   artifacts?: ReportArtifact[];
   questions?: ReportQuestion[];
@@ -128,6 +153,7 @@ export interface Report {
   taskId: string;
   runId: string;
   schema: string;
+  role: AgentRole;
   status: ReportStatus;
   summary: string;
   payload: ReportPayload;

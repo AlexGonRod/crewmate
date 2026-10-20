@@ -17,6 +17,10 @@ function makeTask(methodology: Methodology, spec: TaskSpec | null = null): Task 
     briefText: 'Do it',
     methodology,
     spec,
+    stage: 'develop',
+    reviewIterations: 0,
+    commitSha: null,
+    prUrl: null,
     state: 'running',
     deliveryMode: 'local',
     baseBranch: 'main',
@@ -114,6 +118,64 @@ describe('methodology gates', () => {
     const task = makeTask('spec', makeSpec());
     const report = makeReport(task, { status: 'needs_input' });
     expect(() => assertReportMeetsMethodology(report, task)).not.toThrow();
+  });
+
+  it('enforces tester role and verdict rules on v3 reports', () => {
+    const task = makeTask('free');
+    const testerReport = makeReport(task, {
+      schema: 'crew.report/v3',
+      role: 'tester',
+      verdict: 'approve',
+      methodology: 'free',
+    });
+    expect(() =>
+      assertReportMeetsMethodology(testerReport, task, 'tester'),
+    ).not.toThrow();
+    expect(() =>
+      assertReportMeetsMethodology(testerReport, task, 'developer'),
+    ).toThrow('does not match run role');
+
+    const noVerdict = makeReport(task, {
+      schema: 'crew.report/v3',
+      role: 'tester',
+      methodology: 'free',
+    });
+    expect(() =>
+      assertReportMeetsMethodology(noVerdict, task, 'tester'),
+    ).toThrow('must include verdict');
+
+    const approveFailed = makeReport(task, {
+      schema: 'crew.report/v3',
+      role: 'tester',
+      verdict: 'approve',
+      methodology: 'free',
+      status: 'failed',
+    });
+    expect(() =>
+      assertReportMeetsMethodology(approveFailed, task, 'tester'),
+    ).toThrow('approve verdict requires status');
+
+    const rejectDone = makeReport(task, {
+      schema: 'crew.report/v3',
+      role: 'tester',
+      verdict: 'reject',
+      methodology: 'free',
+      status: 'done',
+    });
+    expect(() =>
+      assertReportMeetsMethodology(rejectDone, task, 'tester'),
+    ).toThrow('reject verdict requires status');
+  });
+
+  it('requires v3 for tester reports', () => {
+    const task = makeTask('free');
+    const report = makeReport(task, {
+      schema: 'crew.report/v2',
+      methodology: 'free',
+    });
+    expect(() =>
+      assertReportMeetsMethodology(report, task, 'tester'),
+    ).toThrow('Tester reports require a crew.report/v3');
   });
 
   it('requires red and green test phases for tdd done', () => {

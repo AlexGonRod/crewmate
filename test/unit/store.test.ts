@@ -125,7 +125,7 @@ describe('store', () => {
     store.markRunRunning(runId, process.pid);
     const report = store.recordReport(reportFor(task.id, runId));
     expect(report.status).toBe('done');
-    expect(store.getTask(task.id)?.state).toBe('done');
+    expect(store.getTask(task.id)?.state).toBe('running');
     expect(store.listArtifacts(task.id)).toHaveLength(1);
 
     const finalTask = store.finishRun({
@@ -136,6 +136,40 @@ describe('store', () => {
     });
     expect(finalTask.state).toBe('done');
     expect(store.getRun(runId)?.state).toBe('exited');
+  });
+
+  it('keeps the developer harness when a tester run starts', () => {
+    const store = createStore();
+    const { task } = createTask(store);
+    const developerRun = startRun(store, task.id);
+    store.markRunRunning(developerRun, process.pid);
+    store.recordReport(reportFor(task.id, developerRun));
+    store.finishRun({
+      runId: developerRun,
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      keepTaskRunning: true,
+    });
+
+    const testerRun = newId('run');
+    store.startRun({
+      taskId: task.id,
+      runId: testerRun,
+      attempt: store.nextAttempt(task.id),
+      harnessId: 'opencode',
+      role: 'tester',
+      stage: 'test',
+      continuePipeline: true,
+      backend: 'process',
+      logPath: '/tmp/tester.log',
+      worktreePath: '/tmp/worktree',
+      branch: 'crew/test',
+    });
+
+    expect(store.getTaskOrThrow(task.id).harnessId).toBe('fake');
+    expect(store.getRun(testerRun)?.harnessId).toBe('opencode');
+    expect(store.getRun(testerRun)?.role).toBe('tester');
   });
 
   it('marks a run failed when the agent exits without a report', () => {
@@ -260,7 +294,7 @@ describe('store', () => {
       ],
     });
     expect(report.status).toBe('done');
-    expect(store.getTaskOrThrow(task.id).state).toBe('done');
+    expect(store.getTaskOrThrow(task.id).state).toBe('running');
   });
 
   it('migrates a phase 0 database in place', () => {
@@ -294,7 +328,7 @@ describe('store', () => {
 
     const store = new Store(dbPath);
     stores.push(store);
-    expect(store.schemaVersion()).toBe(2);
+    expect(store.schemaVersion()).toBe(3);
     const project = store.createProject({
       name: 'legacy',
       rootPath: '/tmp/legacy',

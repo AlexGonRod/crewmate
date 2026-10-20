@@ -12,11 +12,13 @@ import {
   taskStateForReport,
 } from '../core/state';
 import type {
+  AgentRole,
   Artifact,
   DeliveryMode,
   EventRecord,
   Message,
   Methodology,
+  PipelineStage,
   Project,
   Report,
   ReportPayload,
@@ -49,6 +51,10 @@ interface TaskRow {
   brief_text: string;
   methodology: Methodology;
   spec_json: string | null;
+  stage: PipelineStage;
+  review_iterations: number;
+  commit_sha: string | null;
+  pr_url: string | null;
   state: TaskState;
   delivery_mode: DeliveryMode;
   base_branch: string;
@@ -67,6 +73,8 @@ interface RunRow {
   task_id: string;
   attempt: number;
   harness_id: string;
+  role: AgentRole;
+  stage: PipelineStage;
   backend: string;
   state: RunState;
   pid: number | null;
@@ -81,6 +89,7 @@ interface ReportRow {
   task_id: string;
   run_id: string;
   schema: string;
+  role: AgentRole;
   status: ReportStatus;
   summary: string;
   payload_json: string;
@@ -151,6 +160,10 @@ function toTask(row: TaskRow): Task {
     briefText: row.brief_text,
     methodology: row.methodology ?? 'free',
     spec: row.spec_json ? (JSON.parse(row.spec_json) as TaskSpec) : null,
+    stage: (row.stage ?? 'develop') as PipelineStage,
+    reviewIterations: Number(row.review_iterations ?? 0),
+    commitSha: row.commit_sha ?? null,
+    prUrl: row.pr_url ?? null,
     state: row.state,
     deliveryMode: row.delivery_mode,
     baseBranch: row.base_branch,
@@ -171,6 +184,8 @@ function toRun(row: RunRow): Run {
     taskId: row.task_id,
     attempt: row.attempt,
     harnessId: row.harness_id,
+    role: (row.role ?? 'developer') as AgentRole,
+    stage: (row.stage ?? 'develop') as PipelineStage,
     backend: row.backend,
     state: row.state,
     pid: row.pid,
@@ -187,6 +202,7 @@ function toReport(row: ReportRow): Report {
     taskId: row.task_id,
     runId: row.run_id,
     schema: row.schema,
+    role: (row.role ?? 'developer') as AgentRole,
     status: row.status,
     summary: row.summary,
     payload: JSON.parse(row.payload_json) as ReportPayload,
@@ -267,10 +283,13 @@ export interface StartRunInput {
   runId: string;
   attempt: number;
   harnessId: string;
+  role?: AgentRole;
+  stage?: PipelineStage;
   backend: string;
   logPath: string;
   worktreePath: string;
   branch: string;
+  continuePipeline?: boolean;
 }
 
 export interface FinishRunInput {
@@ -279,6 +298,7 @@ export interface FinishRunInput {
   signal: string | null;
   timedOut: boolean;
   reportError?: string;
+  keepTaskRunning?: boolean;
 }
 
 export interface Lease {
@@ -352,11 +372,44 @@ export class Store {
     if (!names.has('spec_json')) {
       this.db.exec('ALTER TABLE tasks ADD COLUMN spec_json TEXT');
     }
+    if (!names.has('stage')) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN stage TEXT NOT NULL DEFAULT 'develop'");
+    }
+    if (!names.has('review_iterations')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN review_iterations INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!names.has('commit_sha')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN commit_sha TEXT');
+    }
+    if (!names.has('pr_url')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN pr_url TEXT');
+    }
+
+    const runColumns = this.db.prepare('PRAGMA table_info(runs)').all() as unknown as Array<{
+      name: string;
+    }>;
+    const runNames = new Set(runColumns.map((column) => column.name));
+    if (!runNames.has('role')) {
+      this.db.exec("ALTER TABLE runs ADD COLUMN role TEXT NOT NULL DEFAULT 'developer'");
+    }
+    if (!runNames.has('stage')) {
+      this.db.exec("ALTER TABLE runs ADD COLUMN stage TEXT NOT NULL DEFAULT 'develop'");
+    }
+
+    const reportColumns = this.db
+      .prepare('PRAGMA table_info(reports)')
+      .all() as unknown as Array<{ name: string }>;
+    const reportNames = new Set(reportColumns.map((column) => column.name));
+    if (!reportNames.has('role')) {
+      this.db.exec("ALTER TABLE reports ADD COLUMN role TEXT NOT NULL DEFAULT 'developer'");
+    }
+
     const insert = this.db.prepare(
       'INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)',
     );
     insert.run(1, nowIso());
     insert.run(2, nowIso());
+    insert.run(3, nowIso());
   }
 
   private transaction<T>(fn: () => T): T {
@@ -520,6 +573,10 @@ export class Store {
         briefText,
         methodology: input.methodology,
         spec: input.spec,
+        stage: 'develop',
+        reviewIterations: 0,
+        commitSha: null,
+        prUrl: null,
         state: 'draft',
         deliveryMode: input.deliveryMode,
         baseBranch: project.defaultBranch,
@@ -536,8 +593,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO tasks
-            (id, project_id, title, slug, brief_text, methodology, spec_json, state, delivery_mode, base_branch, branch, worktree_path, harness_id, priority, last_seq, created_at, updated_at, finished_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (id, project_id, title, slug, brief_text, methodology, spec_json, stage, review_iterations, commit_sha, pr_url, state, delivery_mode, base_branch, branch, worktree_path, harness_id, priority, last_seq, created_at, updated_at, finished_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           task.id,
@@ -547,6 +604,10 @@ export class Store {
           task.briefText,
           task.methodology,
           task.spec ? JSON.stringify(task.spec) : null,
+          task.stage,
+          task.reviewIterations,
+          task.commitSha,
+          task.prUrl,
           task.state,
           task.deliveryMode,
           task.baseBranch,
@@ -623,6 +684,12 @@ export class Store {
     return this.getTaskOrThrow(task.id);
   }
 
+  private setTaskStage(taskId: string, stage: PipelineStage): void {
+    this.db
+      .prepare('UPDATE tasks SET stage = ?, updated_at = ? WHERE id = ?')
+      .run(stage, nowIso(), taskId);
+  }
+
   nextAttempt(taskId: string): number {
     const row = this.db
       .prepare('SELECT COALESCE(MAX(attempt), 0) + 1 AS next FROM runs WHERE task_id = ?')
@@ -666,29 +733,39 @@ export class Store {
       if (this.getActiveRun(task.id)) {
         throw new CrewError('RUN_ACTIVE', `Task ${task.id} already has an active run`);
       }
-      if (task.state === 'draft') {
-        task = this.setTaskState(task, 'queued', 'task.queued');
+
+      const role: AgentRole = input.role ?? 'developer';
+      const stage: PipelineStage = input.stage ?? task.stage;
+
+      if (task.state === 'running' && input.continuePipeline) {
+        // A pipeline stage follows the previous one without leaving `running`.
+      } else {
+        if (task.state === 'draft') {
+          task = this.setTaskState(task, 'queued', 'task.queued');
+        }
+        if (task.state !== 'queued') {
+          throw new CrewError(
+            'TASK_NOT_QUEUED',
+            `Task ${task.id} is ${task.state}; expected draft or queued`,
+          );
+        }
+        task = this.setTaskState(task, 'starting', 'task.starting');
       }
-      if (task.state !== 'queued') {
-        throw new CrewError(
-          'TASK_NOT_QUEUED',
-          `Task ${task.id} is ${task.state}; expected draft or queued`,
-        );
-      }
-      task = this.setTaskState(task, 'starting', 'task.starting');
 
       const runId = input.runId;
       const startedAt = nowIso();
       this.db
         .prepare(
-          `INSERT INTO runs (id, task_id, attempt, harness_id, backend, state, pid, exit_code, log_path, started_at, ended_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO runs (id, task_id, attempt, harness_id, role, stage, backend, state, pid, exit_code, log_path, started_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           runId,
           task.id,
           input.attempt,
           input.harnessId,
+          role,
+          stage,
           input.backend,
           'starting',
           null,
@@ -701,10 +778,17 @@ export class Store {
       this.db
         .prepare(
           `UPDATE tasks
-           SET branch = ?, worktree_path = ?, harness_id = ?, updated_at = ?
+           SET branch = ?, worktree_path = ?, harness_id = ?, stage = ?, updated_at = ?
            WHERE id = ?`,
         )
-        .run(input.branch, input.worktreePath, input.harnessId, startedAt, task.id);
+        .run(
+          input.branch,
+          input.worktreePath,
+          role === 'developer' ? input.harnessId : task.harnessId,
+          stage,
+          startedAt,
+          task.id,
+        );
 
       this.appendEvent({
         aggregateType: 'run',
@@ -714,13 +798,17 @@ export class Store {
         payload: {
           attempt: input.attempt,
           harness_id: input.harnessId,
+          role,
+          stage,
           backend: input.backend,
           branch: input.branch,
           worktree_path: input.worktreePath,
         },
       });
 
-      task = this.setTaskState(task, 'running', 'task.started');
+      if (task.state !== 'running') {
+        task = this.setTaskState(task, 'running', 'task.started', { role, stage });
+      }
       return this.getRun(runId) ?? (() => {
         throw new CrewError('RUN_NOT_FOUND', `Run not found after insert: ${runId}`);
       })();
@@ -803,13 +891,14 @@ export class Store {
         );
       }
 
-      assertReportMeetsMethodology(input, task);
+      assertReportMeetsMethodology(input, task, run.role);
 
       const report: Report = {
         id: newId('rep'),
         taskId: task.id,
         runId: run.id,
         schema: input.schema,
+        role: run.role,
         status: input.status,
         summary: input.summary,
         payload: input,
@@ -818,14 +907,15 @@ export class Store {
 
       this.db
         .prepare(
-          `INSERT INTO reports (id, task_id, run_id, schema, status, summary, payload_json, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO reports (id, task_id, run_id, schema, role, status, summary, payload_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           report.id,
           report.taskId,
           report.runId,
           report.schema,
+          report.role,
           report.status,
           report.summary,
           JSON.stringify(input),
@@ -874,27 +964,13 @@ export class Store {
         type: 'run.report.received',
         payload: {
           report_id: report.id,
+          role: report.role,
           status: report.status,
           summary: report.summary,
+          verdict: input.verdict,
         },
         correlationId: run.id,
       });
-
-      const target = taskStateForReport(input.status);
-      if (target && (task.state === 'starting' || task.state === 'running')) {
-        const eventType =
-          target === 'done'
-            ? 'task.completed'
-            : target === 'failed'
-              ? 'task.failed'
-              : target === 'blocked'
-                ? 'task.blocked'
-                : 'task.input_requested';
-        this.setTaskState(task, target, eventType, {
-          report_id: report.id,
-          status: report.status,
-        });
-      }
 
       return report;
     });
@@ -935,6 +1011,29 @@ export class Store {
       }
 
       const report = this.getReportByRun(run.id);
+      if (input.keepTaskRunning) {
+        if (input.timedOut) {
+          return this.setTaskState(task, 'failed', 'task.failed', {
+            reason: 'Agent timed out',
+          });
+        }
+        if (input.reportError) {
+          return this.setTaskState(task, 'failed', 'task.failed', {
+            reason: `Invalid agent report: ${input.reportError}`,
+          });
+        }
+        if (!report) {
+          return this.setTaskState(task, 'failed', 'task.failed', {
+            reason: 'Agent exited without a report',
+          });
+        }
+        if (report.status === 'progress') {
+          return this.setTaskState(task, 'failed', 'task.failed', {
+            reason: 'Agent exited after a progress report without a terminal report',
+          });
+        }
+        return task;
+      }
       if (input.timedOut) {
         return this.setTaskState(task, 'failed', 'task.failed', { reason: 'Agent timed out' });
       }
@@ -993,6 +1092,7 @@ export class Store {
         type: 'message.added',
         payload: { direction: 'in', kind: 'answer' },
       });
+      this.setTaskStage(task.id, 'develop');
       return this.setTaskState(task, 'queued', 'task.queued', { reason: 'answered' });
     });
   }
@@ -1028,7 +1128,7 @@ export class Store {
     const row = this.db
       .prepare(
         `SELECT * FROM tasks
-         WHERE state = 'queued'
+         WHERE state = 'queued' AND stage = 'develop'
          ORDER BY priority DESC, created_at ASC
          LIMIT 1`,
       )
@@ -1048,6 +1148,7 @@ export class Store {
           `Task ${task.id} is ${task.state}; expected draft`,
         );
       }
+      this.setTaskStage(task.id, 'develop');
       return this.setTaskState(task, 'queued', 'task.queued');
     });
   }
@@ -1061,6 +1162,7 @@ export class Store {
           `Task ${task.id} is ${task.state}; only failed tasks can be retried`,
         );
       }
+      this.setTaskStage(task.id, 'develop');
       return this.setTaskState(task, 'queued', 'task.queued', { reason: 'retry' });
     });
   }
@@ -1074,6 +1176,210 @@ export class Store {
       assertTaskTransition(task.state, 'failed');
       return this.setTaskState(task, 'failed', 'task.failed', { reason });
     });
+  }
+
+  setDeliveryMode(taskId: string, mode: DeliveryMode): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      if (task.deliveryMode === mode) {
+        return task;
+      }
+      this.db
+        .prepare('UPDATE tasks SET delivery_mode = ?, updated_at = ? WHERE id = ?')
+        .run(mode, nowIso(), task.id);
+      this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'task.delivery_changed',
+        payload: { from: task.deliveryMode, to: mode },
+      });
+      return this.getTaskOrThrow(task.id);
+    });
+  }
+
+  applyReportOutcome(
+    taskId: string,
+    status: ReportStatus,
+    reason?: string,
+  ): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      if (status === 'done' || status === 'progress') {
+        return task;
+      }
+      const target: TaskState =
+        status === 'needs_input'
+          ? 'waiting_input'
+          : status === 'blocked'
+            ? 'blocked'
+            : 'failed';
+      if (task.state === target) {
+        return task;
+      }
+      const eventType =
+        target === 'failed'
+          ? 'task.failed'
+          : target === 'blocked'
+            ? 'task.blocked'
+            : 'task.input_requested';
+      return this.setTaskState(task, target, eventType, {
+        status,
+        ...(reason ? { reason } : {}),
+      });
+    });
+  }
+
+  requestReview(taskId: string): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      if (task.state !== 'running') {
+        throw new CrewError(
+          'TASK_NOT_RUNNING',
+          `Task ${task.id} is ${task.state}; expected running`,
+        );
+      }
+      this.setTaskStage(task.id, 'review');
+      return this.setTaskState(task, 'review', 'task.review.requested', {
+        commit_sha: task.commitSha,
+        pr_url: task.prUrl,
+      });
+    });
+  }
+
+  rejectReview(taskId: string, reason: string, maxIterations = 3): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      if (task.state !== 'running' && task.state !== 'review') {
+        throw new CrewError(
+          'TASK_NOT_REVIEWABLE',
+          `Task ${task.id} is ${task.state}; expected running or review`,
+        );
+      }
+      const iteration = task.reviewIterations + 1;
+      const body = reason.trim() || 'Review rejected without a reason';
+      const createdAt = nowIso();
+
+      this.db
+        .prepare(
+          `INSERT INTO messages (id, task_id, run_id, direction, kind, body, created_at, consumed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          newId('msg'),
+          task.id,
+          null,
+          'in',
+          'review_feedback',
+          body,
+          createdAt,
+          null,
+        );
+      this.db
+        .prepare(
+          'UPDATE tasks SET review_iterations = ?, updated_at = ? WHERE id = ?',
+        )
+        .run(iteration, createdAt, task.id);
+
+      this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'task.review.rejected',
+        payload: { iteration, reason: body, max_iterations: maxIterations },
+      });
+
+      if (iteration > maxIterations) {
+        this.setTaskStage(task.id, 'review');
+        return this.setTaskState(task, 'failed', 'task.failed', {
+          reason: `Review rejected ${iteration} times (max ${maxIterations}): ${body}`,
+          review_iterations: iteration,
+        });
+      }
+
+      this.setTaskStage(task.id, 'develop');
+      return this.setTaskState(task, 'queued', 'task.queued', {
+        reason: 'review rejected',
+        review_iterations: iteration,
+      });
+    });
+  }
+
+  acceptTask(taskId: string): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      if (task.state !== 'review') {
+        throw new CrewError(
+          'TASK_NOT_IN_REVIEW',
+          `Task ${task.id} is ${task.state}; expected review`,
+        );
+      }
+      this.setTaskStage(task.id, 'review');
+      const delivering = this.setTaskState(task, 'delivering', 'task.delivering', {
+        commit_sha: task.commitSha,
+        pr_url: task.prUrl,
+      });
+      return this.setTaskState(delivering, 'done', 'task.accepted', {
+        commit_sha: task.commitSha,
+        pr_url: task.prUrl,
+      });
+    });
+  }
+
+  recordCommit(taskId: string, sha: string): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      this.db
+        .prepare('UPDATE tasks SET commit_sha = ?, updated_at = ? WHERE id = ?')
+        .run(sha, nowIso(), task.id);
+      this.db
+        .prepare(
+          `INSERT INTO artifacts (id, task_id, run_id, kind, ref, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(newId('art'), task.id, null, 'commit', sha, null, nowIso());
+      this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'git.committed',
+        payload: { commit_sha: sha },
+      });
+      return this.getTaskOrThrow(task.id);
+    });
+  }
+
+  recordPullRequest(taskId: string, url: string): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      this.db
+        .prepare('UPDATE tasks SET pr_url = ?, updated_at = ? WHERE id = ?')
+        .run(url, nowIso(), task.id);
+      this.db
+        .prepare(
+          `INSERT INTO artifacts (id, task_id, run_id, kind, ref, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(newId('art'), task.id, null, 'pr', url, null, nowIso());
+      this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'pr.created',
+        payload: { url },
+      });
+      return this.getTaskOrThrow(task.id);
+    });
+  }
+
+  getLatestReportByRole(taskId: string, role: AgentRole): Report | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM reports WHERE task_id = ? AND role = ?
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(taskId, role) as ReportRow | undefined;
+    return row ? toReport(row) : null;
   }
 
   reconcileStaleRuns(options: ReconcileOptions = {}): LostRun[] {

@@ -24,7 +24,13 @@ function context(): ResolvedContext {
       tasksDir: '/tmp/crew/tasks',
       logsDir: '/tmp/crew/logs',
     },
-    config: { harness: 'fake', timeoutSeconds: 60 },
+    config: {
+      harness: 'fake',
+      timeoutSeconds: 60,
+      agents: { developer: {}, tester: {} },
+      review: { maxIterations: 3 },
+      delivery: 'local',
+    },
   };
 }
 
@@ -88,9 +94,14 @@ const successfulExecutor: DaemonExecutor = async (store, _context, options) => {
   }
   return {
     task,
-    run,
+    outcome: 'review',
+    stage: task.stage,
+    runs: store.listRuns(task.id),
     report: store.getReportByRun(runId),
-    process: { exitCode: 0, signal: null, timedOut: false, outputTail: '' },
+    developerReport: store.getReportByRun(runId),
+    testerReport: null,
+    commitSha: task.commitSha,
+    prUrl: task.prUrl,
   };
 };
 

@@ -1,6 +1,8 @@
 import type {
+  AgentRole,
   Message,
   Methodology,
+  PipelineStage,
   Project,
   Run,
   Task,
@@ -18,6 +20,10 @@ export interface BriefInput {
   cliCommand: string;
   methodology: Methodology;
   spec: TaskSpec | null;
+  role: AgentRole;
+  stage: PipelineStage;
+  reviewIteration: number;
+  developerReportPath?: string;
   verifyCommands: string[];
   messages: Message[];
 }
@@ -98,12 +104,87 @@ A \`done\` report must include a \`passed\` entry for ${criteriaList} in
 `;
 }
 
+function renderRoleInstructions(input: {
+  role: AgentRole;
+  reviewIteration: number;
+  developerReportPath?: string;
+}): string {
+  if (input.role === 'tester') {
+    const developerReport = input.developerReportPath
+      ? `- Developer report: \`${input.developerReportPath}\``
+      : '- Developer report: not available';
+    return `## Role: Tester
+
+You are the independent tester. Verify the developer's work; do not implement
+or fix the task yourself.
+
+1. Read the spec, the developer report, and the current worktree/diff.
+2. Run the verification commands and inspect the changes.
+3. Check every acceptance criterion against real evidence.
+4. Emit a \`crew.report/v3\` report with verdict \`approve\` or \`reject\`.
+
+${developerReport}
+- Review iteration: ${input.reviewIteration}
+- Do not modify source files, commit, push, or merge.
+- \`approve\` requires status \`done\` and \`passed\` evidence for every
+  acceptance criterion. \`reject\` requires status \`failed\` and at least one
+  \`blocking\` finding explaining what must change.
+`;
+  }
+
+  return `## Role: Developer
+
+Implement the task inside the isolated worktree.
+
+- Review iteration: ${input.reviewIteration}
+${
+  input.reviewIteration > 0
+    ? '- Address the tester feedback in "Previous messages" before reporting done.\n'
+    : ''
+}
+- Do not push, merge, or open pull requests.
+`;
+}
+
 function renderReportTemplate(
   task: Task,
   run: Run,
   methodology: Methodology,
   spec: TaskSpec | null,
+  role: AgentRole,
+  reviewIteration: number,
 ): string {
+  if (role === 'tester') {
+    const acceptance = (spec?.acceptance_criteria ?? [])
+      .map(
+        (criterion) =>
+          `    {"criterion_id": "${criterion.id}", "status": "passed", "evidence": "test or file reference"}`,
+      )
+      .join(',\n');
+    const phases =
+      methodology === 'tdd'
+        ? `    {"command": "pnpm test", "status": "failed", "phase": "red"},\n    {"command": "pnpm test", "status": "passed", "phase": "green"}`
+        : `    {"command": "pnpm test", "status": "passed"}`;
+    return `{
+  "schema": "crew.report/v3",
+  "task_id": "${task.id}",
+  "run_id": "${run.id}",
+  "methodology": "${methodology}",
+  "role": "tester",
+  "verdict": "approve",
+  "review_iteration": ${reviewIteration},
+  "status": "done",
+  "summary": "What was verified and the verdict",
+  "findings": [],
+  "acceptance": [
+${acceptance}
+  ],
+  "tests": [
+${phases}
+  ]
+}`;
+  }
+
   if (methodology === 'free') {
     return `{
   "schema": "crew.report/v1",
@@ -158,6 +239,10 @@ export function generateBrief(input: BriefInput): string {
     cliCommand,
     methodology,
     spec,
+    role,
+    stage,
+    reviewIteration,
+    developerReportPath,
     messages,
   } = input;
   const frontmatterLines = [
@@ -173,6 +258,9 @@ export function generateBrief(input: BriefInput): string {
     `base_branch: ${yamlString(task.baseBranch)}`,
     `delivery_mode: ${yamlString(task.deliveryMode)}`,
     `methodology: ${yamlString(methodology)}`,
+    `role: ${yamlString(role)}`,
+    `stage: ${yamlString(stage)}`,
+    `review_iteration: ${reviewIteration}`,
   ];
   if (spec) {
     frontmatterLines.push('spec_schema: "crew.spec/v1"');
@@ -193,8 +281,23 @@ export function generateBrief(input: BriefInput): string {
       : '- No project verification commands are configured.';
 
   const specSection = renderSpec(spec);
-  const methodologySection = renderMethodology(methodology, spec);
-  const reportTemplate = renderReportTemplate(task, run, methodology, spec);
+  const roleSection = renderRoleInstructions({
+    role,
+    reviewIteration,
+    developerReportPath,
+  });
+  const methodologySection =
+    role === 'developer' ? renderMethodology(methodology, spec) : '';
+  const reportTemplate = renderReportTemplate(
+    task,
+    run,
+    methodology,
+    spec,
+    role,
+    reviewIteration,
+  );
+  const reportSchema =
+    role === 'tester' ? 'crew.report/v3' : `crew.report/v${methodology === 'free' ? '1' : '2'}`;
   const methodologyDone =
     methodology === 'free'
       ? ''
@@ -212,6 +315,7 @@ export function generateBrief(input: BriefInput): string {
 ${goal}
 
 ${specSection}
+${roleSection}
 ${methodologySection}
 ## Context
 
@@ -221,6 +325,9 @@ ${methodologySection}
 - Worktree: ${task.worktreePath}
 - Branch: ${task.branch}
 - Attempt: ${attempt}
+- Role: ${role}
+- Stage: ${stage}
+- Review iteration: ${reviewIteration}
 - Methodology: ${methodology}
 - Delivery mode: ${task.deliveryMode}
 
@@ -234,6 +341,7 @@ checkout, do not push, and do not merge anything.
 - Do not change files outside the task's scope without explaining why.
 - Do not mark the task done if verification fails.
 - If you need a human decision, report \`needs_input\` and stop.
+${role === 'tester' ? '- Approve only if the implementation satisfies the spec and every acceptance criterion.' : ''}
 
 ## Verification
 
@@ -255,19 +363,25 @@ ${cliCommand} report --task ${task.id} --run ${run.id} --file ${reportPath}
 
 2. Write a JSON report to \`${reportPath}\` and exit normally.
 
-The report must match \`crew.report/v${methodology === 'free' ? '1' : '2'}\`:
+The report must match \`${reportSchema}\`:
 
 \`\`\`json
 ${reportTemplate}
 \`\`\`
 
-Status values:
+${role === 'tester'
+  ? `Tester verdicts:
+
+- \`approve\`: status \`done\` plus \`passed\` evidence for every criterion.
+- \`reject\`: status \`failed\` plus at least one \`blocking\` finding.
+- Include a \`findings\` entry for every problem the developer must fix.`
+  : `Status values:
 
 - \`done\`: work is complete and verified.
 - \`failed\`: work could not be completed.
 - \`blocked\`: an external blocker prevents progress.
 - \`needs_input\`: a human decision is required.
-- \`progress\`: an optional intermediate update; it does not finish the task.
+- \`progress\`: an optional intermediate update; it does not finish the task.`}
 
 If a report is missing, invalid, or only uses \`progress\`, the run is marked as
 failed.
@@ -278,6 +392,10 @@ failed.
 - \`CREW_RUN_ID\` = ${run.id}
 - \`CREW_PROJECT_ID\` = ${project.id}
 - \`CREW_METHODOLOGY\` = ${methodology}
+- \`CREW_ROLE\` = ${role}
+- \`CREW_STAGE\` = ${stage}
+- \`CREW_REVIEW_ITERATION\` = ${reviewIteration}
+- \`CREW_DEVELOPER_REPORT_PATH\` = ${developerReportPath ?? ''}
 - \`CREW_WORKTREE\` = ${task.worktreePath}
 - \`CREW_BRIEF_PATH\` = ${briefPath}
 - \`CREW_SPEC_PATH\` = ${specPath}
@@ -285,9 +403,14 @@ failed.
 
 ## Definition of done
 
-- The goal above is implemented.
+${role === 'tester'
+  ? `- Every acceptance criterion has a verdict and evidence.
+- Verification commands were actually run.
+- The report uses schema \`crew.report/v3\` with an explicit verdict.
+- The report is written before you exit.`
+  : `- The goal above is implemented.
 - Verification commands pass, or failures are explained in \`tests\`.
 ${methodologyDone}- Any artifacts (commit, PR, file) are listed in the report.
-- The report is written before you exit.
+- The report is written before you exit.`}
 `;
 }

@@ -4,7 +4,7 @@ import { isPidAlive, terminateProcessTree } from '../core/process';
 import type { TaskState } from '../core/types';
 import type { ResolvedContext } from '../config/config';
 import type { LostRun, Store } from '../store/store';
-import { runTask } from './run-task';
+import { runPipeline, type PipelineOptions, type PipelineResult } from './pipeline';
 
 const DAEMON_RESOURCE = 'daemon';
 
@@ -23,13 +23,19 @@ export interface DaemonResult {
   stopped: 'once' | 'idle' | 'max_tasks' | 'aborted';
 }
 
-export type DaemonExecutor = typeof runTask;
+export type DaemonExecutor = (
+  store: Store,
+  context: ResolvedContext,
+  options: PipelineOptions,
+) => Promise<PipelineResult>;
 
 export interface DaemonOptions {
   once?: boolean;
   intervalMs?: number;
   maxTasks?: number;
   harnessId?: string;
+  testerHarnessId?: string;
+  maxIterations?: number;
   timeoutSeconds?: number;
   env?: Record<string, string>;
   quiet?: boolean;
@@ -65,7 +71,7 @@ export async function runDaemon(
   context: ResolvedContext,
   options: DaemonOptions = {},
 ): Promise<DaemonResult> {
-  const execute = options.execute ?? runTask;
+  const execute = options.execute ?? runPipeline;
   const intervalMs = Math.max(250, options.intervalMs ?? 5000);
   const staleAfterMs = options.staleAfterMs ?? 30_000;
   const leaseTtlSeconds = Math.max(
@@ -152,7 +158,9 @@ export async function runDaemon(
       try {
         const result = await execute(store, context, {
           taskId: task.id,
-          harnessId,
+          developerHarnessId: harnessId,
+          testerHarnessId: options.testerHarnessId,
+          maxIterations: options.maxIterations,
           timeoutSeconds: options.timeoutSeconds,
           env: options.env ?? {},
           quiet: options.quiet,
@@ -160,7 +168,7 @@ export async function runDaemon(
         entry = {
           taskId: task.id,
           taskState: result.task.state,
-          runId: result.run.id,
+          runId: result.runs.at(-1)?.id ?? null,
           reportStatus: result.report?.status ?? null,
         };
       } catch (error) {
