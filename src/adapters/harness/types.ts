@@ -40,6 +40,7 @@ export interface LaunchSpec {
   run: Run;
   worktreePath: string;
   briefPath: string;
+  brief: string;
   reportPath: string;
   dbPath: string;
   env: Record<string, string>;

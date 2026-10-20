@@ -9,7 +9,8 @@ import type { Project, Report, Run, Task } from '../core/types';
 import { readProjectConfig } from '../config/config';
 import type { ResolvedContext } from '../config/config';
 import { ensureWorktree, removeWorktree } from '../git/worktree';
-import { getHarness } from '../adapters/harness/registry';
+import { assertHarnessAvailable } from '../adapters/harness/detect';
+import { getHarness, resolveHarnessId } from '../adapters/harness/registry';
 import { runProcess, type ProcessResult } from '../adapters/backend/process';
 import {
   normalizeReport,
@@ -48,7 +49,9 @@ export async function runTask(
     throw new Error(`Task ${initialTask.id} already has an active run`);
   }
 
-  const harness = getHarness(options.harnessId);
+  const harnessId = resolveHarnessId(options.harnessId);
+  const harness = getHarness(harnessId);
+  const availability = assertHarnessAvailable(harness);
   const attempt = store.nextAttempt(initialTask.id);
   const branch =
     initialTask.branch ?? `crew/${initialTask.id}-${slugify(initialTask.title)}`;
@@ -81,7 +84,7 @@ export async function runTask(
       taskId: initialTask.id,
       runId,
       attempt,
-      harnessId: options.harnessId,
+      harnessId,
       backend: 'process',
       logPath,
       worktreePath,
@@ -147,6 +150,7 @@ export async function runTask(
     run,
     worktreePath,
     briefPath,
+    brief,
     reportPath,
     dbPath: store.dbPath,
     env: options.env,
@@ -161,7 +165,7 @@ export async function runTask(
   let processError: string | undefined;
   try {
     processResult = await runProcess({
-      command: launch.command,
+      command: availability.binary ?? launch.command,
       args: launch.args,
       cwd: worktreePath,
       env: { ...baseEnv, ...launch.env },

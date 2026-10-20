@@ -1,7 +1,9 @@
 import { existsSync } from 'node:fs';
 import { isTerminalTaskState } from '../core/state';
 import { readProjectConfig, type ResolvedContext } from '../config/config';
+import { detectHarness } from '../adapters/harness/detect';
 import { fakeAgentPath } from '../adapters/harness/fake';
+import { getHarness, listHarnessAdapters } from '../adapters/harness/registry';
 import type { Store } from '../store/store';
 
 export type DoctorStatus = 'ok' | 'warn' | 'error';
@@ -48,6 +50,32 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
     status: existsSync(fakeAgentPath()) ? 'ok' : 'error',
     detail: fakeAgentPath(),
   });
+
+  try {
+    getHarness(context.config.harness);
+  } catch (error) {
+    checks.push({
+      name: 'harness.configured',
+      status: 'error',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  for (const adapter of listHarnessAdapters()) {
+    if (adapter.manifest.spec.detect.binaries.length === 0) {
+      continue;
+    }
+    const id = adapter.manifest.metadata.id;
+    const availability = detectHarness(adapter.manifest);
+    const configured = context.config.harness === id;
+    checks.push({
+      name: `harness.${id}`,
+      status: availability.available ? 'ok' : configured ? 'error' : 'warn',
+      detail:
+        availability.binary ??
+        `not found on PATH: ${adapter.manifest.spec.detect.binaries.join(', ')}`,
+    });
+  }
 
   checks.push({
     name: 'paths.data',

@@ -1,5 +1,13 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 const ROOT = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const TSX = path.join(ROOT, 'node_modules', '.bin', 'tsx');
 const CLI = path.join(ROOT, 'src', 'cli', 'main.ts');
+
 
 interface CliResult {
   status: number;
@@ -53,6 +62,7 @@ describe('phase 0 walking skeleton', () => {
   let tempRoot: string;
   let repo: string;
   let env: Record<string, string>;
+  let toolBin: string;
 
   function cli(args: string[]): CliResult {
     return runCli(args, { cwd: repo, env });
@@ -120,6 +130,13 @@ describe('phase 0 walking skeleton', () => {
       CREW_DATA_DIR: path.join(tempRoot, 'data'),
       CREW_STATE_DIR: path.join(tempRoot, 'state'),
     };
+
+    toolBin = path.join(tempRoot, 'tool-bin');
+    mkdirSync(toolBin, { recursive: true });
+    symlinkSync(
+      process.execPath,
+      path.join(toolBin, process.platform === 'win32' ? 'node.exe' : 'node'),
+    );
 
     mkdirSync(repo, { recursive: true });
     execFileSync('git', ['init', '-b', 'main'], { cwd: repo });
@@ -243,6 +260,44 @@ describe('phase 0 walking skeleton', () => {
     const events = cli(['--json', 'events', '--task', id]);
     expect(events.status, events.stderr).toBe(0);
     expect(Array.isArray(events.json.events)).toBe(true);
+  });
+
+  it('lists harness availability and rejects unavailable harnesses before creating a worktree', () => {
+    const list = cli(['--json', 'harness', 'list']);
+    expect(list.status, list.stderr).toBe(0);
+    const byId = new Map(
+      (list.json.harnesses as Array<{ id: string; available: boolean }>).map((entry) => [
+        entry.id,
+        entry,
+      ]),
+    );
+    expect(byId.get('fake')?.available).toBe(true);
+    expect(typeof byId.get('opencode')?.available).toBe('boolean');
+
+    const id = createTask('OpenCode unavailable');
+    const restrictedPath = {
+      ...env,
+      PATH: [toolBin, '/usr/bin', '/bin'].join(path.delimiter),
+    };
+
+    const missing = runCli(
+      ['--json', 'task', 'run', id, '--harness', 'opencode'],
+      { cwd: repo, env: restrictedPath },
+    );
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain('HARNESS_UNAVAILABLE');
+
+    const auto = runCli(['--json', 'task', 'run', id, '--harness', 'auto'], {
+      cwd: repo,
+      env: restrictedPath,
+    });
+    expect(auto.status).toBe(1);
+    expect(auto.stderr).toContain('No real harness detected');
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    expect(shown.json.task.state).toBe('draft');
+    expect(shown.json.task.worktreePath).toBeNull();
+    expect(shown.json.runs).toHaveLength(0);
   });
 
   it('defaults new projects to the spec methodology', () => {

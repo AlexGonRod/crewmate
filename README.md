@@ -1,8 +1,9 @@
 # crew
 
 Orquestador de múltiples agentes agnóstico al lenguaje. Esta entrega cubre la
-**Fase 0** y la primera capa de la **Fase 1**: metodología de desarrollo
-declarativa (`free`, `spec`, `tdd`). El núcleo sigue siendo pequeño y verificado,
+**Fase 0** y parte de la **Fase 1**: metodología de desarrollo declarativa
+(`free`, `spec`, `tdd`) y ejecución con harness reales (`opencode`), incluida la
+detección y selección automática. El núcleo sigue siendo pequeño y verificado,
 sin daemon ni supervisión real.
 
 El diseño combina dos ideas:
@@ -14,20 +15,22 @@ El diseño combina dos ideas:
 
 ## Estado
 
-Fase 0 completada:
+Fase 0 completada y Fase 1 en curso:
 
 - Proyectos registrados y tareas con estado durable en SQLite.
 - Worktree aislado por tarea.
 - Metodologías `free`, `spec` y `tdd`, con gates de evidencia.
 - Brief generado y contratos de reporte `crew.report/v1` y `crew.report/v2`.
+- Harness `opencode` real, además del agente falso.
+- Detección de binarios, `--harness auto` y `crew harness list`.
 - Agente falso con escenarios de éxito, fallo, bloqueo, input, crash,
   reporte malformado, progreso y timeout.
 - CLI con salida humana y `--json`.
 - Event log append-only y `doctor`.
 - Tests unitarios y e2e.
 
-Fuera de alcance todavía: daemon, watcher, supervisión, harnesses reales, PTY,
-provisioning, review, PRs, merge, memoria, UI web y hosts remotos.
+Fuera de alcance todavía: daemon, watcher, supervisión, PTY, provisioning,
+review, PRs, merge, memoria, UI web y hosts remotos.
 
 ## Requisitos
 
@@ -69,20 +72,46 @@ pnpm crew task clean tsk_... --force
 | `crew init [--force]` | Escribe `.crew/config.yaml` en el repo actual |
 | `crew project add <path> [--name]` | Registra un repositorio |
 | `crew project list` | Lista proyectos |
+| `crew harness list` | Lista harnesses, disponibilidad y capacidades |
 | `crew task create --project <ref> --title <t> (--brief <texto> \| --brief-file <path> \| --spec-file <path>) [--methodology free\|spec\|tdd] [--acceptance <texto>] [--non-goal <texto>] [--delivery local]` | Crea una tarea en `draft` |
 | `crew task list [--state <state>]` | Lista tareas |
 | `crew task show <id>` | Detalle, runs, reporte, mensajes, artefactos y eventos |
-| `crew task run <id> [--harness fake] [--timeout <s>] [--env K=V] [--quiet]` | Ejecuta la tarea en un worktree |
+| `crew task run <id> [--harness fake\|opencode\|auto] [--timeout <s>] [--env K=V] [--quiet]` | Ejecuta la tarea en un worktree |
 | `crew task answer <id> --text <texto>` | Responde y encola un nuevo intento |
 | `crew task cancel <id>` | Cancela la tarea y su proceso activo |
 | `crew task clean <id> [--force]` | Elimina el worktree; nunca borra la rama |
 | `crew report --task <id> --run <id> [--file <path\|->] [--status <s>] [--summary <t>]` | Registra un reporte |
 | `crew events [--task <id>] [--follow] [--limit <n>]` | Muestra el event log |
-| `crew doctor` | Comprueba base de datos, runs y worktrees |
+| `crew doctor` | Comprueba base de datos, harnesses, runs, worktrees y proyectos |
 | `crew version` | Muestra la versión |
 
 Códigos de salida de `task run`: `0` si la tarea termina en `done`, `2` si queda
 en `waiting_input` o `blocked`, `1` para `failed`/`cancelled`.
+
+## Harnesses
+
+- `fake`: agente de prueba incluido; no requiere binarios externos.
+- `opencode`: ejecuta `opencode run --format json --auto` con el brief como
+  mensaje. El agente trabaja en el worktree aislado de la tarea.
+- `auto`: elige el primer harness real detectado en `PATH`. Si no hay ninguno,
+  falla con `HARNESS_UNAVAILABLE` antes de crear el worktree.
+
+```sh
+pnpm crew harness list
+pnpm crew --json task run tsk_... --harness opencode
+pnpm crew --json task run tsk_... --harness auto
+```
+
+El harness por defecto se puede fijar en `~/.config/crew/config.yaml`:
+
+```yaml
+harness: opencode
+timeout_seconds: 1800
+```
+
+`opencode` se lanza con `--auto` para que pueda editar el worktree sin
+confirmaciones interactivas. Las reglas de permisos que el usuario haya denegado
+explícitamente en su configuración de opencode se siguen respetando.
 
 ## Metodología
 

@@ -15,8 +15,9 @@ Describir cada harness con un manifiesto versionado `crew.harness/v1`:
 - `provisioning`: si soporta instalación/sincronización (fase posterior).
 - `capabilities`: `resume`, `interactive`, `hooks`, `subagents`, `mcp`.
 
-El núcleo consume el manifiesto y un adaptador mínimo. En Fase 0 solo se
-implementa el adaptador `fake`; `opencode` queda declarado para la Fase 1.
+El núcleo consume el manifiesto y un adaptador mínimo. En Fase 0 se implementó
+`fake`; en Fase 1 se añadió `opencode`, detección del binario en `PATH`,
+preflight `HARNESS_UNAVAILABLE` y resolución de `--harness auto`.
 
 El protocolo para adaptadores externos (JSON-RPC 2.0 sobre stdio) se reserva y
 versiona, pero no se implementa todavía.
@@ -26,3 +27,4 @@ versiona, pero no se implementa todavía.
 - Añadir un harness no toca el núcleo.
 - Las capacidades se pueden comprobar antes de lanzar.
 - Es necesaria una suite de conformidad por adaptador en fases posteriores.
+- `auto` solo considera harnesses reales; `fake` requiere selección explícita.

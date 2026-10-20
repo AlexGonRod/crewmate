@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { Command, CommanderError } from 'commander';
 import pc from 'picocolors';
 import { addProject, initProject } from '../app/projects';
+import { detectHarness } from '../adapters/harness/detect';
+import { listHarnessAdapters } from '../adapters/harness/registry';
 import { runTask } from '../app/run-task';
 import { loadContext, readProjectConfig, type ResolvedContext } from '../config/config';
 import { CrewError, errorMessage } from '../core/errors';
@@ -220,6 +222,46 @@ function buildProgram(): Command {
       }
     });
 
+  const harness = program.command('harness').description('inspect harness adapters');
+
+  harness
+    .command('list')
+    .description('list harness adapters, availability, and capabilities')
+    .action(() => {
+      const entries = listHarnessAdapters().map((adapter) => {
+        const availability = detectHarness(adapter.manifest);
+        return {
+          id: adapter.manifest.metadata.id,
+          name: adapter.manifest.metadata.name,
+          available: availability.available,
+          binary: availability.binary,
+          modes: adapter.manifest.spec.execution.modes,
+          capabilities: adapter.manifest.spec.capabilities,
+          manifest: adapter.manifest,
+        };
+      });
+      if (globalOptions().json) {
+        printJson({ harnesses: entries });
+        return;
+      }
+      printTable(
+        entries.map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          available: entry.available ? 'yes' : 'no',
+          binary: entry.binary ?? '-',
+          modes: entry.modes.join(','),
+        })),
+        [
+          { key: 'id', label: 'ID' },
+          { key: 'name', label: 'NAME' },
+          { key: 'available', label: 'AVAILABLE' },
+          { key: 'binary', label: 'BINARY' },
+          { key: 'modes', label: 'MODES' },
+        ],
+      );
+    });
+
   const project = program.command('project').description('manage registered projects');
 
   project
@@ -406,7 +448,7 @@ function buildProgram(): Command {
   task
     .command('run <id>')
     .description('run a task in an isolated worktree')
-    .option('--harness <id>', 'harness adapter', 'fake')
+    .option('--harness <id>', 'harness adapter: fake, opencode, or auto')
     .option('--timeout <seconds>', 'timeout in seconds', Number)
     .option('--env <key=value>', 'extra environment variable', collect, [])
     .option('--quiet', 'do not stream agent output')
@@ -414,7 +456,7 @@ function buildProgram(): Command {
       async (
         id: string,
         options: {
-          harness: string;
+          harness?: string;
           timeout?: number;
           env: string[];
           quiet?: boolean;
@@ -424,7 +466,7 @@ function buildProgram(): Command {
         const result = await withStore((store, context) =>
           runTask(store, context, {
             taskId: id,
-            harnessId: options.harness,
+            harnessId: options.harness ?? context.config.harness,
             timeoutSeconds: options.timeout,
             env: parseEnv(options.env),
             quiet: Boolean(options.quiet || json),
