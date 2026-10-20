@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://crew.dev/contracts/harness.v1.schema.json",
+  "title": "crew.harness/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "crew.dev/v1" },
+    "kind": { "const": "Harness" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["detect", "execution", "provisioning", "capabilities"],
+      "properties": {
+        "detect": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["binaries"],
+          "properties": {
+            "binaries": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["modes", "command", "prompt", "timeout_seconds"],
+          "properties": {
+            "modes": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["oneshot", "interactive"] }
+            },
+            "command": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" }
+            },
+            "prompt": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mode"],
+              "properties": {
+                "mode": { "type": "string", "enum": ["stdin", "argument", "file"] }
+              }
+            },
+            "timeout_seconds": { "type": "integer", "minimum": 1 },
+            "env": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            }
+          }
+        },
+        "provisioning": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["supported"],
+          "properties": {
+            "supported": { "type": "boolean" },
+            "format": { "type": "string" }
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["resume", "interactive", "hooks", "subagents", "mcp"],
+          "properties": {
+            "resume": { "type": "boolean" },
+            "interactive": { "type": "boolean" },
+            "hooks": { "type": "boolean" },
+            "subagents": { "type": "boolean" },
+            "mcp": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}

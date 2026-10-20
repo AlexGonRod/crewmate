@@ -1,0 +1,17 @@
+{
+  "schema": "crew.spec/v1",
+  "goal": "Add a GET /health endpoint that reports service status.",
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "text": "The endpoint returns HTTP 200 with status ok.",
+      "verify": "pnpm test -- health"
+    },
+    {
+      "id": "AC2",
+      "text": "An integration test covers the endpoint."
+    }
+  ],
+  "non_goals": ["Authentication", "Metrics aggregation"],
+  "constraints": ["Do not change the public API of existing endpoints."]
+}

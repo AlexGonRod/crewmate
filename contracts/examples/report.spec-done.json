@@ -1,0 +1,26 @@
+{
+  "schema": "crew.report/v2",
+  "task_id": "tsk_01J00000000000000000000000",
+  "run_id": "run_01J00000000000000000000000",
+  "methodology": "spec",
+  "status": "done",
+  "summary": "Added GET /health and verified both acceptance criteria.",
+  "acceptance": [
+    {
+      "criterion_id": "AC1",
+      "status": "passed",
+      "evidence": "test/health.test.ts: returns 200 with status ok"
+    },
+    {
+      "criterion_id": "AC2",
+      "status": "passed",
+      "evidence": "test/health.integration.test.ts"
+    }
+  ],
+  "tests": [
+    { "command": "pnpm test -- health", "status": "passed" }
+  ],
+  "artifacts": [
+    { "kind": "commit", "ref": "abc1234", "label": "Health endpoint" }
+  ]
+}

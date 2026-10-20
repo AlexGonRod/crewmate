@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://crew.dev/contracts/brief.v1.schema.json",
+  "title": "crew.brief/v1 frontmatter",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "task_id",
+    "run_id",
+    "attempt",
+    "project_id",
+    "repo_path",
+    "worktree_path",
+    "branch",
+    "base_branch",
+    "delivery_mode"
+  ],
+  "properties": {
+    "schema": { "const": "crew.brief/v1" },
+    "task_id": { "type": "string", "pattern": "^tsk_" },
+    "run_id": { "type": "string", "pattern": "^run_" },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "project_id": { "type": "string", "pattern": "^prj_" },
+    "repo_path": { "type": "string", "minLength": 1 },
+    "worktree_path": { "type": "string", "minLength": 1 },
+    "branch": { "type": "string", "minLength": 1 },
+    "base_branch": { "type": "string", "minLength": 1 },
+    "delivery_mode": {
+      "type": "string",
+      "enum": ["local", "pr", "auto_merge", "scout"]
+    }
+  }
+}

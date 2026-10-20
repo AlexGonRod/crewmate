@@ -1,0 +1,14 @@
+{
+  "schema": "crew.report/v1",
+  "task_id": "tsk_01J00000000000000000000000",
+  "run_id": "run_01J00000000000000000000000",
+  "status": "needs_input",
+  "summary": "Need a product decision before continuing.",
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Should the new page use the existing design system or a one-off layout?",
+      "blocking": true
+    }
+  ]
+}

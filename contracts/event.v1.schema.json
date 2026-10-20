@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://crew.dev/contracts/event.v1.schema.json",
+  "title": "crew.event/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "aggregate_type",
+    "aggregate_id",
+    "type",
+    "actor",
+    "payload",
+    "created_at"
+  ],
+  "properties": {
+    "id": { "type": "string", "pattern": "^evt_" },
+    "aggregate_type": {
+      "type": "string",
+      "enum": ["project", "task", "run", "lease", "wake"]
+    },
+    "aggregate_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": ["string", "null"] },
+    "type": { "type": "string", "minLength": 1 },
+    "actor": { "type": "string", "minLength": 1 },
+    "payload": { "type": "object" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "correlation_id": { "type": ["string", "null"] },
+    "causation_id": { "type": ["string", "null"] }
+  }
+}

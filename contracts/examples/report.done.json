@@ -1,0 +1,14 @@
+{
+  "schema": "crew.report/v1",
+  "task_id": "tsk_01J00000000000000000000000",
+  "run_id": "run_01J00000000000000000000000",
+  "status": "done",
+  "summary": "Implemented the requested change and verified it.",
+  "tests": [
+    { "command": "pnpm test", "status": "passed" }
+  ],
+  "artifacts": [
+    { "kind": "commit", "ref": "abc1234", "label": "Implementation" }
+  ],
+  "follow_ups": []
+}

@@ -1,0 +1,387 @@
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+const ROOT = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
+const TSX = path.join(ROOT, 'node_modules', '.bin', 'tsx');
+const CLI = path.join(ROOT, 'src', 'cli', 'main.ts');
+
+interface CliResult {
+  status: number;
+  stdout: string;
+  stderr: string;
+  json: any;
+}
+
+function runCli(
+  args: string[],
+  options: { cwd: string; env: Record<string, string> },
+): CliResult {
+  const result = spawnSync(TSX, [CLI, ...args], {
+    cwd: options.cwd,
+    env: {
+      ...process.env,
+      ...options.env,
+      NO_COLOR: '1',
+      FORCE_COLOR: '0',
+    },
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  const stdout = result.stdout ?? '';
+  let json: any = null;
+  try {
+    json = JSON.parse(stdout);
+  } catch {
+    json = null;
+  }
+  return {
+    status: result.status ?? 1,
+    stdout,
+    stderr: result.stderr ?? '',
+    json,
+  };
+}
+
+describe('phase 0 walking skeleton', () => {
+  let tempRoot: string;
+  let repo: string;
+  let env: Record<string, string>;
+
+  function cli(args: string[]): CliResult {
+    return runCli(args, { cwd: repo, env });
+  }
+
+  function createTask(
+    title: string,
+    brief = 'Create a marker file',
+    extra: string[] = ['--methodology', 'free'],
+  ): string {
+    const result = cli([
+      '--json',
+      'task',
+      'create',
+      '--project',
+      'demo',
+      '--title',
+      title,
+      '--brief',
+      brief,
+      ...extra,
+    ]);
+    expect(result.status, result.stderr).toBe(0);
+    return result.json.task.id as string;
+  }
+
+  function createSpecTask(
+    title: string,
+    methodology: 'spec' | 'tdd',
+    criteria: string[],
+  ): string {
+    return createTask(title, 'Implement the requested behaviour', [
+      '--methodology',
+      methodology,
+      ...criteria.flatMap((criterion) => ['--acceptance', criterion]),
+    ]);
+  }
+
+  function runTask(
+    id: string,
+    scenario: string,
+    extra: string[] = [],
+    timeout = '10',
+  ): CliResult {
+    return cli([
+      '--json',
+      'task',
+      'run',
+      id,
+      '--harness',
+      'fake',
+      '--env',
+      `CREW_FAKE_SCENARIO=${scenario}`,
+      '--timeout',
+      timeout,
+      ...extra,
+    ]);
+  }
+
+  beforeAll(() => {
+    tempRoot = mkdtempSync(path.join(tmpdir(), 'crew-e2e-'));
+    repo = path.join(tempRoot, 'repo');
+    env = {
+      CREW_CONFIG_DIR: path.join(tempRoot, 'config'),
+      CREW_DATA_DIR: path.join(tempRoot, 'data'),
+      CREW_STATE_DIR: path.join(tempRoot, 'state'),
+    };
+
+    mkdirSync(repo, { recursive: true });
+    execFileSync('git', ['init', '-b', 'main'], { cwd: repo });
+    execFileSync('git', ['config', 'user.email', 'crew@example.com'], { cwd: repo });
+    execFileSync('git', ['config', 'user.name', 'Crew Test'], { cwd: repo });
+    writeFileSync(path.join(repo, 'README.md'), '# demo\n');
+    execFileSync('git', ['add', '.'], { cwd: repo });
+    execFileSync('git', ['commit', '-m', 'initial'], { cwd: repo });
+
+    const init = cli(['init']);
+    expect(init.status, init.stderr).toBe(0);
+    const added = cli(['--json', 'project', 'add', '.', '--name', 'demo']);
+    expect(added.status, added.stderr).toBe(0);
+    expect(added.json.project.defaultBranch).toBe('main');
+  });
+
+  afterAll(() => {
+    if (tempRoot) {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('runs a fake agent to done and cleans a dirty worktree only with --force', () => {
+    const id = createTask('Fake success');
+    const result = runTask(id, 'success');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.task.state).toBe('done');
+    expect(result.json.report.status).toBe('done');
+    expect(result.json.run.state).toBe('exited');
+    expect(result.json.process.exit_code).toBe(0);
+
+    const worktree = result.json.task.worktreePath as string;
+    expect(existsSync(path.join(worktree, 'FAKE_AGENT_OUTPUT.txt'))).toBe(true);
+    expect(existsSync(path.join(worktree, '.crew', 'brief.md'))).toBe(true);
+
+    const refused = cli(['task', 'clean', id]);
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('WORKTREE_DIRTY');
+
+    const cleaned = cli(['--json', 'task', 'clean', id, '--force']);
+    expect(cleaned.status, cleaned.stderr).toBe(0);
+    expect(existsSync(worktree)).toBe(false);
+    expect(cleaned.json.task.worktreePath).toBeNull();
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    expect(shown.status, shown.stderr).toBe(0);
+    expect(shown.json.task.state).toBe('done');
+    expect(shown.json.events.length).toBeGreaterThan(0);
+  });
+
+  it('marks a crash without a report as failed', () => {
+    const id = createTask('Fake crash');
+    const result = runTask(id, 'crash');
+    expect(result.status).toBe(1);
+    expect(result.json.task.state).toBe('failed');
+    expect(result.json.report).toBeNull();
+  });
+
+  it('rejects a malformed report and marks the task failed', () => {
+    const id = createTask('Fake malformed');
+    const result = runTask(id, 'malformed');
+    expect(result.status).toBe(1);
+    expect(result.json.task.state).toBe('failed');
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    const failed = shown.json.events.find(
+      (event: { type: string }) => event.type === 'task.failed',
+    );
+    expect(failed.payload.reason).toContain('Invalid agent report');
+  });
+
+  it('supports needs_input followed by answer and a second attempt', () => {
+    const id = createTask('Fake needs input');
+    const first = runTask(id, 'needs_input');
+    expect(first.status).toBe(2);
+    expect(first.json.task.state).toBe('waiting_input');
+    expect(first.json.report.status).toBe('needs_input');
+
+    const answered = cli([
+      '--json',
+      'task',
+      'answer',
+      id,
+      '--text',
+      'Use the existing design system',
+    ]);
+    expect(answered.status, answered.stderr).toBe(0);
+    expect(answered.json.task.state).toBe('queued');
+
+    const second = runTask(id, 'success');
+    expect(second.status, second.stderr).toBe(0);
+    expect(second.json.task.state).toBe('done');
+    expect(second.json.run.attempt).toBe(2);
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    expect(shown.json.messages.some((message: { body: string }) =>
+      message.body.includes('existing design system'),
+    )).toBe(true);
+  });
+
+  it('times out a stuck agent', () => {
+    const id = createTask('Fake timeout');
+    const started = Date.now();
+    const result = runTask(id, 'timeout', [], '1');
+    const elapsed = Date.now() - started;
+    expect(result.status).toBe(1);
+    expect(result.json.task.state).toBe('failed');
+    expect(result.json.process.timed_out).toBe(true);
+    expect(elapsed).toBeLessThan(20_000);
+  });
+
+  it('reports doctor and event JSON', () => {
+    const doctor = cli(['--json', 'doctor']);
+    expect(doctor.status, doctor.stderr).toBe(0);
+    expect(doctor.json.ok).toBe(true);
+    expect(Array.isArray(doctor.json.checks)).toBe(true);
+
+    const tasks = cli(['--json', 'task', 'list']);
+    expect(tasks.status, tasks.stderr).toBe(0);
+    const id = tasks.json.tasks[0].id as string;
+    const events = cli(['--json', 'events', '--task', id]);
+    expect(events.status, events.stderr).toBe(0);
+    expect(Array.isArray(events.json.events)).toBe(true);
+  });
+
+  it('defaults new projects to the spec methodology', () => {
+    const rejected = cli([
+      '--json',
+      'task',
+      'create',
+      '--project',
+      'demo',
+      '--title',
+      'Spec without criteria',
+      '--brief',
+      'Do the thing',
+    ]);
+    expect(rejected.status).toBe(1);
+    expect(rejected.stderr).toContain('SPEC_REQUIRED');
+
+    const created = cli([
+      '--json',
+      'task',
+      'create',
+      '--project',
+      'demo',
+      '--title',
+      'Default spec task',
+      '--brief',
+      'Do the thing',
+      '--acceptance',
+      'The thing exists',
+    ]);
+    expect(created.status, created.stderr).toBe(0);
+    expect(created.json.task.methodology).toBe('spec');
+    expect(created.json.task.spec.acceptance_criteria[0].id).toBe('AC1');
+  });
+
+  it('creates a spec task from a spec file', () => {
+    const specPath = path.join(tempRoot, 'health.yaml');
+    writeFileSync(
+      specPath,
+      [
+        'goal: Implement the health endpoint',
+        'acceptance_criteria:',
+        '  - text: It returns 200',
+        '  - id: AC2',
+        '    text: It has an integration test',
+        'non_goals:',
+        '  - Authentication',
+        '',
+      ].join('\n'),
+    );
+    const created = cli([
+      '--json',
+      'task',
+      'create',
+      '--project',
+      'demo',
+      '--title',
+      'Spec file task',
+      '--spec-file',
+      specPath,
+    ]);
+    expect(created.status, created.stderr).toBe(0);
+    expect(created.json.task.spec.goal).toBe('Implement the health endpoint');
+    expect(created.json.task.spec.acceptance_criteria).toEqual([
+      { id: 'AC1', text: 'It returns 200' },
+      { id: 'AC2', text: 'It has an integration test' },
+    ]);
+    expect(created.json.task.spec.non_goals).toEqual(['Authentication']);
+
+    const result = runTask(created.json.task.id as string, 'spec_success');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.task.state).toBe('done');
+  });
+
+  it('runs a spec task and records acceptance evidence', () => {
+    const id = createSpecTask('Spec success', 'spec', [
+      'The marker file exists',
+      'The report covers both criteria',
+    ]);
+    const result = runTask(id, 'spec_success');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.task.state).toBe('done');
+    expect(result.json.report.schema).toBe('crew.report/v2');
+    expect(result.json.report.payload.acceptance).toHaveLength(2);
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    expect(shown.status, shown.stderr).toBe(0);
+    expect(shown.json.task.methodology).toBe('spec');
+    expect(shown.json.report.payload.acceptance[0].criterion_id).toBe('AC1');
+  });
+
+  it('fails a spec task when acceptance evidence is missing', () => {
+    const id = createSpecTask('Spec missing evidence', 'spec', [
+      'The marker file exists',
+      'The report covers both criteria',
+    ]);
+    const result = runTask(id, 'spec_missing_evidence');
+    expect(result.status).toBe(1);
+    expect(result.json.task.state).toBe('failed');
+    expect(result.json.report).toBeNull();
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    const failed = shown.json.events.find(
+      (event: { type: string }) => event.type === 'task.failed',
+    );
+    expect(failed.payload.reason).toContain('Missing acceptance evidence');
+    expect(failed.payload.reason).toContain('AC2');
+  });
+
+  it('runs a tdd task with red and green evidence', () => {
+    const id = createSpecTask('TDD success', 'tdd', ['The marker file exists']);
+    const result = runTask(id, 'tdd_success');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.task.state).toBe('done');
+    expect(result.json.report.payload.tests.map((test: { phase: string }) => test.phase)).toEqual([
+      'red',
+      'green',
+    ]);
+  });
+
+  it('fails a tdd task without a red phase', () => {
+    const id = createSpecTask('TDD missing red', 'tdd', ['The marker file exists']);
+    const result = runTask(id, 'tdd_missing_red');
+    expect(result.status).toBe(1);
+    expect(result.json.task.state).toBe('failed');
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    const failed = shown.json.events.find(
+      (event: { type: string }) => event.type === 'task.failed',
+    );
+    expect(failed.payload.reason).toContain('phases: red');
+  });
+
+  it('keeps the main checkout free of tracked changes', () => {
+    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
+      cwd: repo,
+      encoding: 'utf8',
+    });
+    expect(status.trim()).toBe('');
+    expect(readFileSync(path.join(repo, 'README.md'), 'utf8')).toBe('# demo\n');
+  });
+});
