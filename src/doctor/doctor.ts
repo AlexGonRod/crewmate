@@ -34,7 +34,7 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
   const version = store.schemaVersion();
   checks.push({
     name: 'database.schema',
-    status: version >= 3 ? 'ok' : 'warn',
+    status: version >= 4 ? 'ok' : 'warn',
     detail: `schema version ${version}`,
   });
 

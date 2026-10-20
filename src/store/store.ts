@@ -29,6 +29,8 @@ import type {
   TaskDetail,
   TaskSpec,
   TaskState,
+  VerificationResult,
+  VerificationState,
 } from '../core/types';
 import { assertReportMeetsMethodology } from '../protocol/methodology';
 import { SCHEMA_SQL } from './schema';
@@ -114,6 +116,22 @@ interface ArtifactRow {
   kind: string;
   ref: string;
   metadata_json: string | null;
+  created_at: string;
+}
+
+interface VerificationRow {
+  id: string;
+  task_id: string;
+  run_id: string;
+  command: string;
+  state: VerificationState;
+  exit_code: number | null;
+  signal: string | null;
+  timed_out: number;
+  duration_ms: number;
+  output: string;
+  log_path: string;
+  error: string | null;
   created_at: string;
 }
 
@@ -235,6 +253,24 @@ function toArtifact(row: ArtifactRow): Artifact {
   };
 }
 
+function toVerification(row: VerificationRow): VerificationResult {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    runId: row.run_id,
+    command: row.command,
+    state: row.state,
+    exitCode: row.exit_code,
+    signal: row.signal,
+    timedOut: Boolean(row.timed_out),
+    durationMs: Number(row.duration_ms),
+    output: row.output,
+    logPath: row.log_path,
+    ...(row.error ? { error: row.error } : {}),
+    createdAt: row.created_at,
+  };
+}
+
 function toLease(row: LeaseRow): Lease {
   return {
     resource: row.resource,
@@ -299,6 +335,20 @@ export interface FinishRunInput {
   timedOut: boolean;
   reportError?: string;
   keepTaskRunning?: boolean;
+}
+
+export interface RecordVerificationInput {
+  taskId: string;
+  runId: string;
+  command: string;
+  state: VerificationState;
+  exitCode: number | null;
+  signal: string | null;
+  timedOut: boolean;
+  durationMs: number;
+  output: string;
+  logPath: string;
+  error?: string;
 }
 
 export interface Lease {
@@ -410,6 +460,7 @@ export class Store {
     insert.run(1, nowIso());
     insert.run(2, nowIso());
     insert.run(3, nowIso());
+    insert.run(4, nowIso());
   }
 
   private transaction<T>(fn: () => T): T {
@@ -864,6 +915,83 @@ export class Store {
       .prepare('SELECT * FROM artifacts WHERE task_id = ? ORDER BY created_at ASC')
       .all(taskId) as unknown as ArtifactRow[];
     return rows.map(toArtifact);
+  }
+
+  listVerifications(taskId: string): VerificationResult[] {
+    const rows = this.db
+      .prepare('SELECT * FROM verifications WHERE task_id = ? ORDER BY created_at ASC')
+      .all(taskId) as unknown as VerificationRow[];
+    return rows.map(toVerification);
+  }
+
+  listVerificationsForRun(runId: string): VerificationResult[] {
+    const rows = this.db
+      .prepare('SELECT * FROM verifications WHERE run_id = ? ORDER BY created_at ASC')
+      .all(runId) as unknown as VerificationRow[];
+    return rows.map(toVerification);
+  }
+
+  recordVerification(input: RecordVerificationInput): VerificationResult {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(input.taskId);
+      const run = this.getRun(input.runId);
+      if (!run || run.taskId !== task.id) {
+        throw new CrewError('RUN_NOT_FOUND', `Run not found for task ${task.id}: ${input.runId}`);
+      }
+      const verification: VerificationResult = {
+        id: newId('ver'),
+        taskId: task.id,
+        runId: run.id,
+        command: input.command,
+        state: input.state,
+        exitCode: input.exitCode,
+        signal: input.signal,
+        timedOut: input.timedOut,
+        durationMs: input.durationMs,
+        output: input.output,
+        logPath: input.logPath,
+        ...(input.error ? { error: input.error } : {}),
+        createdAt: nowIso(),
+      };
+      this.db
+        .prepare(
+          `INSERT INTO verifications
+            (id, task_id, run_id, command, state, exit_code, signal, timed_out, duration_ms, output, log_path, error, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          verification.id,
+          verification.taskId,
+          verification.runId,
+          verification.command,
+          verification.state,
+          verification.exitCode,
+          verification.signal,
+          verification.timedOut ? 1 : 0,
+          verification.durationMs,
+          verification.output,
+          verification.logPath,
+          verification.error ?? null,
+          verification.createdAt,
+        );
+      this.appendEvent({
+        aggregateType: 'run',
+        aggregateId: run.id,
+        taskId: task.id,
+        type: 'verification.completed',
+        payload: {
+          verification_id: verification.id,
+          command: verification.command,
+          state: verification.state,
+          exit_code: verification.exitCode,
+          timed_out: verification.timedOut,
+          duration_ms: verification.durationMs,
+          log_path: verification.logPath,
+        },
+        correlationId: run.id,
+      });
+      return verification;
+    });
   }
 
   recordReport(input: ReportPayload): Report {
@@ -1528,6 +1656,7 @@ export class Store {
       report: this.getLatestReport(task.id),
       messages: this.listMessages(task.id),
       artifacts: this.listArtifacts(task.id),
+      verifications: this.listVerifications(task.id),
       events: this.listEvents({ taskId: task.id }),
     };
   }

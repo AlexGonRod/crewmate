@@ -177,6 +177,25 @@ function renderTaskDetail(detail: ReturnType<Store['getTaskDetail']>): void {
       );
     }
   }
+  if (detail.verifications.length > 0) {
+    console.log('\nVerification:');
+    for (const verification of detail.verifications) {
+      const exit =
+        verification.exitCode === null ? verification.state : `exit=${verification.exitCode}`;
+      console.log(
+        `  ${verification.state} ${exit} ${verification.durationMs}ms ${verification.command}`,
+      );
+      if (verification.state !== 'passed') {
+        const output = verification.output.trim();
+        if (output) {
+          for (const line of output.slice(-1000).split('\n')) {
+            console.log(`    ${line}`);
+          }
+        }
+        console.log(`    log: ${verification.logPath}`);
+      }
+    }
+  }
   if (detail.runs.length > 0) {
     console.log('\nRuns:');
     for (const run of detail.runs) {
@@ -533,6 +552,15 @@ function buildProgram(): Command {
           if (result.testerReport) {
             console.log(
               `Tester: ${result.testerReport.payload.verdict ?? result.testerReport.status} - ${result.testerReport.summary}`,
+            );
+          }
+          for (const verification of result.verifications) {
+            const exit =
+              verification.exitCode === null
+                ? verification.state
+                : `exit=${verification.exitCode}`;
+            console.log(
+              `Verification: ${verification.state} (${exit}) ${verification.command}`,
             );
           }
           if (result.commitSha) {

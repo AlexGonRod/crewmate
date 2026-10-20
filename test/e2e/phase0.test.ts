@@ -148,6 +148,16 @@ describe('phase 0 walking skeleton', () => {
 
     const init = cli(['init']);
     expect(init.status, init.stderr).toBe(0);
+    const configPath = path.join(repo, '.crew', 'config.yaml');
+    const configText = readFileSync(configPath, 'utf8');
+    expect(configText).toContain('verify: []');
+    writeFileSync(
+      configPath,
+      configText.replace(
+        'verify: []',
+        'verify:\n  - test -f FAKE_AGENT_OUTPUT.txt',
+      ),
+    );
     const added = cli(['--json', 'project', 'add', '.', '--name', 'demo']);
     expect(added.status, added.stderr).toBe(0);
     expect(added.json.project.defaultBranch).toBe('main');
@@ -169,6 +179,12 @@ describe('phase 0 walking skeleton', () => {
     expect(result.json.runs.at(-1).state).toBe('exited');
     expect(result.json.runs.at(-1).exitCode).toBe(0);
     expect(result.json.commitSha).toBeTruthy();
+    expect(result.json.verifications).toHaveLength(1);
+    expect(result.json.verifications[0]).toMatchObject({
+      command: 'test -f FAKE_AGENT_OUTPUT.txt',
+      state: 'passed',
+      exitCode: 0,
+    });
 
     const accepted = cli(['--json', 'task', 'accept', id]);
     expect(accepted.status, accepted.stderr).toBe(0);
@@ -191,6 +207,7 @@ describe('phase 0 walking skeleton', () => {
     const shown = cli(['--json', 'task', 'show', id]);
     expect(shown.status, shown.stderr).toBe(0);
     expect(shown.json.task.state).toBe('done');
+    expect(shown.json.verifications[0].state).toBe('passed');
     expect(shown.json.events.length).toBeGreaterThan(0);
   });
 
@@ -397,6 +414,7 @@ describe('phase 0 walking skeleton', () => {
     const shown = cli(['--json', 'task', 'show', id]);
     expect(shown.status, shown.stderr).toBe(0);
     expect(shown.json.task.methodology).toBe('spec');
+    expect(shown.json.verifications[0].state).toBe('passed');
   });
 
   it('fails a spec task when acceptance evidence is missing', () => {
@@ -512,6 +530,74 @@ describe('phase 0 walking skeleton', () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.json.processed[0].taskState).toBe('review');
     expect(cli(['--json', 'task', 'accept', id]).json.task.state).toBe('done');
+  });
+
+  it('rejects review when independent verification fails', () => {
+    const specPath = path.join(tempRoot, 'verify-failure.yaml');
+    writeFileSync(
+      specPath,
+      [
+        'goal: Exercise deterministic verification',
+        'acceptance_criteria:',
+        '  - id: AC1',
+        '    text: The developer marker exists',
+        '  - id: AC2',
+        '    text: A required file is missing on purpose',
+        '    verify: test -f NEVER_CREATED.txt',
+        '',
+      ].join('\n'),
+    );
+    const created = cli([
+      '--json',
+      'task',
+      'create',
+      '--project',
+      'demo',
+      '--title',
+      'Verification failure',
+      '--spec-file',
+      specPath,
+    ]);
+    expect(created.status, created.stderr).toBe(0);
+    const id = created.json.task.id as string;
+
+    const first = runTask(id, 'spec_success', ['--max-iterations', '1']);
+    expect(first.status).toBe(1);
+    expect(first.json.task.state).toBe('queued');
+    expect(first.json.task.reviewIterations).toBe(1);
+    expect(first.json.testerReport).toBeNull();
+    expect(first.json.runs.every((run: { role: string }) => run.role === 'developer')).toBe(
+      true,
+    );
+    expect(
+      first.json.verifications.some(
+        (verification: { state: string; command: string }) =>
+          verification.state === 'failed' &&
+          verification.command === 'test -f NEVER_CREATED.txt',
+      ),
+    ).toBe(true);
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    expect(
+      shown.json.messages.some((message: { body: string }) =>
+        message.body.includes('Independent verification failed'),
+      ),
+    ).toBe(true);
+    expect(
+      shown.json.messages.some((message: { body: string }) =>
+        message.body.includes('test -f NEVER_CREATED.txt'),
+      ),
+    ).toBe(true);
+
+    const second = runTask(id, 'spec_success', ['--max-iterations', '1']);
+    expect(second.status).toBe(1);
+    expect(second.json.task.state).toBe('failed');
+    expect(second.json.task.reviewIterations).toBe(2);
+    const failedShow = cli(['--json', 'task', 'show', id]);
+    const failed = failedShow.json.events.find(
+      (event: { type: string }) => event.type === 'task.failed',
+    );
+    expect(failed.payload.reason).toContain('Independent verification failed');
   });
 
   it('rejects unsupported delivery modes before starting an agent', () => {

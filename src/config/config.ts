@@ -145,6 +145,7 @@ export interface ProjectConfig {
   default_branch?: string;
   methodology?: Methodology;
   verify?: string[];
+  verify_timeout_seconds?: number;
   delivery?: DeliveryMode;
   review?: {
     max_iterations?: number;
@@ -167,6 +168,32 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
     }
     if (typeof parsed.methodology === 'string') {
       parsed.methodology = parseMethodology(parsed.methodology);
+    }
+    if (parsed.verify !== undefined) {
+      if (
+        !Array.isArray(parsed.verify) ||
+        !parsed.verify.every(
+          (command) => typeof command === 'string' && command.trim().length > 0,
+        )
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `verify must be a list of non-empty commands in ${configPath}`,
+        );
+      }
+      parsed.verify = parsed.verify.map((command) => command.trim());
+    }
+    if (parsed.verify_timeout_seconds !== undefined) {
+      if (
+        typeof parsed.verify_timeout_seconds !== 'number' ||
+        !Number.isFinite(parsed.verify_timeout_seconds) ||
+        parsed.verify_timeout_seconds <= 0
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `verify_timeout_seconds must be a positive number in ${configPath}`,
+        );
+      }
     }
     if (parsed.delivery !== undefined) {
       const delivery = parseDeliveryMode(parsed.delivery);

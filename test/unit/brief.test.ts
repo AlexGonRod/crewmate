@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { generateBrief } from '../../src/brief/brief';
 import { newId } from '../../src/core/ids';
-import type { Methodology, Project, Run, Task, TaskSpec } from '../../src/core/types';
+import type {
+  Methodology,
+  Project,
+  Run,
+  Task,
+  TaskSpec,
+  VerificationResult,
+} from '../../src/core/types';
 
 const project: Project = {
   id: newId('prj'),
@@ -61,7 +68,11 @@ function makeTask(
 
 function makeBrief(
   task: Task,
-  options: { role?: 'developer' | 'tester'; reviewIteration?: number } = {},
+  options: {
+    role?: 'developer' | 'tester';
+    reviewIteration?: number;
+    verifications?: VerificationResult[];
+  } = {},
 ): string {
   const role = options.role ?? 'developer';
   return generateBrief({
@@ -81,6 +92,7 @@ function makeBrief(
     developerReportPath:
       role === 'tester' ? '/tmp/worktree/.crew/reports/dev-run.json' : undefined,
     verifyCommands: ['pnpm test'],
+    verifications: options.verifications,
     messages: [],
   });
 }
@@ -127,6 +139,33 @@ describe('brief generation', () => {
     expect(brief).toContain('CREW_DEVELOPER_REPORT_PATH` = /tmp/worktree/.crew/reports/dev-run.json');
     expect(brief).toContain('Do not modify source files');
     expect(brief).not.toContain('## Methodology: TDD');
+  });
+
+  it('includes independent verification evidence for the tester', () => {
+    const verification: VerificationResult = {
+      id: 'ver_test',
+      taskId: run.taskId,
+      runId: 'run_dev',
+      command: 'pnpm test',
+      state: 'failed',
+      exitCode: 1,
+      signal: null,
+      timedOut: false,
+      durationMs: 123,
+      output: 'AssertionError: expected 200',
+      logPath: '/tmp/verifications/run_dev-1.log',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const brief = makeBrief(makeTask('spec', spec), {
+      role: 'tester',
+      verifications: [verification],
+    });
+    expect(brief).toContain('## Independent verification');
+    expect(brief).toContain('`pnpm test`');
+    expect(brief).toContain('State: `failed`');
+    expect(brief).toContain('Exit code: 1');
+    expect(brief).toContain('AssertionError: expected 200');
+    expect(brief).toContain('/tmp/verifications/run_dev-1.log');
   });
 
   it('adds red-green-refactor instructions for tdd', () => {

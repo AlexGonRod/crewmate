@@ -12,6 +12,7 @@ import type {
   Report,
   Run,
   Task,
+  VerificationResult,
 } from '../core/types';
 import { readProjectConfig } from '../config/config';
 import type { ResolvedContext } from '../config/config';
@@ -35,6 +36,8 @@ export interface RunStageOptions {
   continuePipeline?: boolean;
   keepTaskRunning?: boolean;
   developerReportPath?: string;
+  verifications?: VerificationResult[];
+  verifyCommands?: string[];
   agent?: string;
   model?: string;
   timeoutSeconds?: number;
@@ -145,7 +148,9 @@ export async function runStage(
     stage,
     reviewIteration: task.reviewIterations,
     developerReportPath: options.developerReportPath,
-    verifyCommands: projectConfig?.verify ?? [],
+    verifyCommands:
+      options.verifyCommands ?? projectConfig?.verify ?? [],
+    verifications: options.verifications,
     messages: store.listMessages(task.id),
   });
   writeFileSync(briefDataPath, brief, 'utf8');

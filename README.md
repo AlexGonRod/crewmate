@@ -21,9 +21,13 @@ Fase 0 completada y pipeline de Fase 1 implementado:
 - Proyectos registrados y tareas con estado durable en SQLite.
 - Worktree aislado por tarea.
 - Metodologías `free`, `spec` y `tdd`, con gates de evidencia.
-- Pipeline developer → tester independiente → commit → revisión humana.
+- Pipeline developer → verificación determinista → tester independiente → commit
+  → revisión humana.
 - Briefs por rol y contratos de reporte `crew.report/v1`, v2 y v3.
-- Rechazo del tester con feedback y límite configurable de iteraciones.
+- Comandos `verify` del proyecto ejecutados por el orquestador, con exit code,
+  salida y log durable.
+- Rechazo del tester o de la verificación con feedback y límite configurable de
+  iteraciones.
 - Entrega `local` o `pr` (GitHub mediante `gh`); `task accept` exige PR mergeado
   salvo `--force`.
 - Harness `opencode` real, además del agente falso.
@@ -140,24 +144,42 @@ delivery: local
 confirmaciones interactivas. Las reglas de permisos que el usuario haya denegado
 explícitamente en su configuración de opencode se siguen respetando.
 
+Los comandos de verificación se declaran en el proyecto:
+
+```yaml
+# <repo>/.crew/config.yaml
+verify:
+  - pnpm test
+  - pnpm lint
+verify_timeout_seconds: 600
+```
+
 ## Pipeline de desarrollo
 
 `task run` y el daemon ejecutan el mismo pipeline:
 
 1. **Developer**: implementa en el worktree y emite un reporte v1/v2.
-2. **Tester**: agente independiente, solo lectura, revisa el diff, ejecuta la
-   verificación y emite un reporte `crew.report/v3` con `approve` o `reject`.
-3. **Git**: si el tester aprueba, se hace commit de los cambios.
-4. **Delivery**:
+2. **Verificación**: el orquestador ejecuta, de forma determinista y en orden,
+   los comandos de `verify` del proyecto y los `verify` de cada criterio de
+   aceptación. Guarda exit code, duración, salida y log de cada comando.
+3. **Tester**: agente independiente, solo lectura, revisa el diff y la evidencia
+   de verificación, y emite un reporte `crew.report/v3` con `approve` o `reject`.
+4. **Git**: si la verificación y el tester aprueban, se hace commit.
+5. **Delivery**:
    - `local`: la rama queda lista para revisión local.
    - `pr`: se hace push y se abre un PR en GitHub con `gh`.
-5. **Review**: la tarea queda en `review`. `task reject` reencola al developer con
+6. **Review**: la tarea queda en `review`. `task reject` reencola al developer con
    el feedback; `task accept` la marca `done`.
 
-El tester rechaza con `status: failed` y al menos un `finding` de severidad
-`blocking`. El feedback se guarda como mensaje `review_feedback` y aparece en el
-siguiente brief del developer. Tras `review.max_iterations` rechazos (3 por
-defecto) la tarea falla y requiere `task retry`.
+Si un comando de verificación falla o expira, la tarea se rechaza sin invocar al
+tester: el developer recibe la salida y la ruta del log como
+`review_feedback`. Si todos pasan, el tester recibe la evidencia y puede revisar
+el diff y los criterios. El tester rechaza con `status: failed` y al menos un
+`finding` de severidad `blocking`.
+
+Ambos tipos de rechazo comparten el contador `review_iterations`. Tras
+`review.max_iterations` rechazos (3 por defecto) la tarea falla y requiere
+`task retry`.
 
 Con `--delivery pr`, `task accept` consulta el estado real del PR:
 
@@ -233,8 +255,9 @@ pnpm crew --json task create \
 ```
 
 Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
-La evidencia del developer es autodeclarada; el tester independiente la revisa
-antes de permitir el commit y el PR.
+La evidencia del developer es autodeclarada, pero los comandos `verify` los
+ejecuta el orquestador antes de invocar al tester. La salida queda en
+`verifications` y se muestra en `task show`.
 
 ## Arquitectura
 
@@ -247,6 +270,7 @@ CLI
  ├─ spec/           carga y validación de specs
  ├─ brief/          briefs estructurados por metodología
  ├─ protocol/       validación del reporte y gates de metodología
+ ├─ verify/         ejecución determinista de comandos de verificación
  ├─ adapters/       harness (fake, opencode) y backend (process)
  ├─ config/         rutas XDG y configuración
  └─ doctor/         diagnóstico
@@ -263,7 +287,8 @@ Decisiones clave:
 - **Metodología verificable**: la spec y sus criterios se guardan en SQLite y se
   enforcean al registrar el reporte, no solo en el prompt.
 - **Fail-closed**: sin reporte válido no hay `done`, la evidencia incompleta
-  falla, el tester debe aprobar, y `clean` no borra trabajo sucio sin `--force`.
+  falla, los comandos `verify` deben pasar, el tester debe aprobar, y `clean` no
+  borra trabajo sucio sin `--force`.
 - **Un daemon por base de datos** con lease y heartbeat; la recuperación es
   explícita (`daemon reconcile` + `task retry`), nunca un reencolado silencioso.
 

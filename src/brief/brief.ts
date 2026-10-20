@@ -7,6 +7,7 @@ import type {
   Run,
   Task,
   TaskSpec,
+  VerificationResult,
 } from '../core/types';
 
 export interface BriefInput {
@@ -25,6 +26,7 @@ export interface BriefInput {
   reviewIteration: number;
   developerReportPath?: string;
   verifyCommands: string[];
+  verifications?: VerificationResult[];
   messages: Message[];
 }
 
@@ -50,6 +52,48 @@ function renderList(title: string, items: string[] | undefined): string {
     return '';
   }
   return `\n### ${title}\n\n${items.map((item) => `- ${item}`).join('\n')}\n`;
+}
+
+function renderVerifications(results: VerificationResult[] | undefined): string {
+  if (!results || results.length === 0) {
+    return '';
+  }
+  const items = results.map((result) => {
+    const details = [
+      `- State: \`${result.state}\``,
+      `- Exit code: ${result.exitCode ?? '-'}${result.signal ? ` (signal ${result.signal})` : ''}`,
+      `- Duration: ${result.durationMs} ms`,
+      `- Log: \`${result.logPath}\``,
+    ];
+    if (result.timedOut) {
+      details.push('- Timed out: yes');
+    }
+    if (result.error) {
+      details.push(`- Error: ${result.error}`);
+    }
+    const output = result.output.trim();
+    if (output) {
+      const clipped =
+        output.length > 4000 ? output.slice(-4000) : output;
+      details.push(
+        '',
+        'Output (tail):',
+        '',
+        clipped
+          .split('\n')
+          .map((line) => `    ${line}`)
+          .join('\n'),
+      );
+    }
+    return `### \`${result.command}\`\n\n${details.join('\n')}`;
+  });
+  return `## Independent verification
+
+The orchestrator executed these verification commands in the worktree. This
+evidence is authoritative for whether the commands passed.
+
+${items.join('\n\n')}
+`;
 }
 
 function renderSpec(spec: TaskSpec | null): string {
@@ -119,7 +163,8 @@ You are the independent tester. Verify the developer's work; do not implement
 or fix the task yourself.
 
 1. Read the spec, the developer report, and the current worktree/diff.
-2. Run the verification commands and inspect the changes.
+2. If "Independent verification" evidence is present, use it; otherwise run the
+   configured verification commands yourself. Inspect the changes either way.
 3. Check every acceptance criterion against real evidence.
 4. Emit a \`crew.report/v3\` report with verdict \`approve\` or \`reject\`.
 
@@ -281,6 +326,7 @@ export function generateBrief(input: BriefInput): string {
       : '- No project verification commands are configured.';
 
   const specSection = renderSpec(spec);
+  const verificationSection = renderVerifications(input.verifications);
   const roleSection = renderRoleInstructions({
     role,
     reviewIteration,
@@ -316,6 +362,7 @@ ${goal}
 
 ${specSection}
 ${roleSection}
+${verificationSection}
 ${methodologySection}
 ## Context
 
@@ -405,7 +452,7 @@ failed.
 
 ${role === 'tester'
   ? `- Every acceptance criterion has a verdict and evidence.
-- Verification commands were actually run.
+- The independent verification evidence (if any) was considered.
 - The report uses schema \`crew.report/v3\` with an explicit verdict.
 - The report is written before you exit.`
   : `- The goal above is implemented.

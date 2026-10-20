@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadContext } from '../../src/config/config';
+import { loadContext, readProjectConfig } from '../../src/config/config';
 
 const tempDirs: string[] = [];
 const original = {
@@ -37,6 +37,27 @@ afterEach(() => {
 });
 
 describe('config', () => {
+  it('reads and validates project verification config', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
+    tempDirs.push(dir);
+    mkdirSync(path.join(dir, '.crew'), { recursive: true });
+    const configPath = path.join(dir, '.crew', 'config.yaml');
+    writeFileSync(
+      configPath,
+      ['verify:', '  - pnpm test', '  - pnpm lint', 'verify_timeout_seconds: 120', ''].join('\n'),
+    );
+    expect(readProjectConfig(dir)).toMatchObject({
+      verify: ['pnpm test', 'pnpm lint'],
+      verify_timeout_seconds: 120,
+    });
+
+    writeFileSync(configPath, 'verify: pnpm test\n');
+    expect(() => readProjectConfig(dir)).toThrow('verify must be a list');
+
+    writeFileSync(configPath, 'verify: []\nverify_timeout_seconds: 0\n');
+    expect(() => readProjectConfig(dir)).toThrow('verify_timeout_seconds');
+  });
+
   it('reads agents, review, and delivery from the global config', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
     tempDirs.push(dir);

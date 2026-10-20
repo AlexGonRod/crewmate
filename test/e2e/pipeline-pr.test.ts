@@ -129,6 +129,16 @@ process.exit(1);
     chmodSync(gh, 0o755);
 
     expect(cli(['init']).status).toBe(0);
+    const configPath = path.join(repo, '.crew', 'config.yaml');
+    const configText = readFileSync(configPath, 'utf8');
+    expect(configText).toContain('verify: []');
+    writeFileSync(
+      configPath,
+      configText.replace(
+        'verify: []',
+        'verify:\n  - test -f FAKE_AGENT_OUTPUT.txt',
+      ),
+    );
     const added = cli(['--json', 'project', 'add', '.', '--name', 'demo']);
     expect(added.status, added.stderr).toBe(0);
     expect(added.json.project.forge).toBe('github');
@@ -175,6 +185,7 @@ process.exit(1);
     expect(run.json.task.state).toBe('review');
     expect(run.json.prUrl).toBe('https://github.com/acme/demo/pull/1');
     expect(run.json.commitSha).toBeTruthy();
+    expect(run.json.verifications[0].state).toBe('passed');
 
     const branch = run.json.task.branch as string;
     const refs = execFileSync('git', ['--git-dir', remote, 'show-ref'], {

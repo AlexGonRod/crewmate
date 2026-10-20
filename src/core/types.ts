@@ -36,6 +36,24 @@ export interface ReportFinding {
 
 export type TestPhase = 'red' | 'green' | 'refactor';
 
+export type VerificationState = 'passed' | 'failed' | 'error';
+
+export interface VerificationResult {
+  id: string;
+  taskId: string;
+  runId: string;
+  command: string;
+  state: VerificationState;
+  exitCode: number | null;
+  signal: string | null;
+  timedOut: boolean;
+  durationMs: number;
+  output: string;
+  logPath: string;
+  error?: string;
+  createdAt: string;
+}
+
 export type AcceptanceStatus = 'passed' | 'failed' | 'not_verified';
 
 export interface AcceptanceCriterion {
@@ -202,5 +220,6 @@ export interface TaskDetail {
   report: Report | null;
   messages: Message[];
   artifacts: Artifact[];
+  verifications: VerificationResult[];
   events: EventRecord[];
 }

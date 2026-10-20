@@ -39,8 +39,8 @@ modo de aviso: la evidencia incompleta falla.
   ciclo de vida.
 - Los agentes deben emitir reportes v2 para tareas `spec`/`tdd`; v1 sigue
   válido para tareas `free`.
-- La evidencia sigue siendo autodeclarada. La verificación independiente
-  (re-ejecutar tests y comprobar artefactos) queda para una fase posterior.
+- La evidencia del reporte sigue siendo autodeclarada, pero los comandos
+  `verify` se ejecutan de forma independiente desde el orquestador (ADR 0008).
 - `--methodology free` es el escape hatch para tareas sin tests o sin criterios
   formales.
 - Cambios futuros en spec o reporte requieren una nueva versión de esquema.

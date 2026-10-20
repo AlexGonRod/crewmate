@@ -5,6 +5,7 @@ import type {
   Report,
   Run,
   Task,
+  VerificationResult,
 } from '../core/types';
 import type { ResolvedContext } from '../config/config';
 import { readProjectConfig } from '../config/config';
@@ -12,6 +13,10 @@ import type { Store } from '../store/store';
 import { commitWorktree, pushBranch } from '../git/commit';
 import { assertGhReady, createPullRequest } from '../git/forge';
 import { currentBranch } from '../git/git';
+import {
+  DEFAULT_VERIFY_TIMEOUT_SECONDS,
+  runVerificationCommands,
+} from '../verify/verify';
 import { runStage } from './run-stage';
 
 export type PipelineOutcome =
@@ -45,6 +50,7 @@ export interface PipelineResult {
   report: Report | null;
   developerReport: Report | null;
   testerReport: Report | null;
+  verifications: VerificationResult[];
   commitSha: string | null;
   prUrl: string | null;
   error?: string;
@@ -75,6 +81,7 @@ export async function runPipeline(
   }
 
   const projectConfig = readProjectConfig(project.rootPath);
+  const verifyCommands = verificationCommands(projectConfig, task);
   const maxIterations =
     options.maxIterations ??
     projectConfig?.review?.max_iterations ??
@@ -127,6 +134,7 @@ export async function runPipeline(
   let developerReport: Report | null = null;
   let testerReport: Report | null = null;
   let developerReportPath: string | undefined;
+  let verifications: VerificationResult[] = [];
 
   try {
     if (task.state === 'review') {
@@ -138,6 +146,7 @@ export async function runPipeline(
         report: store.getLatestReport(task.id),
         developerReport: store.getLatestReportByRole(task.id, 'developer'),
         testerReport: store.getLatestReportByRole(task.id, 'tester'),
+        verifications: store.listVerifications(task.id),
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -151,6 +160,7 @@ export async function runPipeline(
         report: store.getLatestReport(task.id),
         developerReport: store.getLatestReportByRole(task.id, 'developer'),
         testerReport: store.getLatestReportByRole(task.id, 'tester'),
+        verifications: store.listVerifications(task.id),
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -163,6 +173,7 @@ export async function runPipeline(
       role: 'developer',
       stage: 'develop',
       keepTaskRunning: true,
+      verifyCommands,
       agent: developerAgent,
       model: developerModel,
     });
@@ -179,6 +190,7 @@ export async function runPipeline(
         report: developer.report,
         developerReport,
         testerReport: null,
+        verifications,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -198,9 +210,52 @@ export async function runPipeline(
         report: developer.report,
         developerReport,
         testerReport: null,
+        verifications,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
+    }
+
+    if (verifyCommands.length > 0) {
+      const outcomes = await runVerificationCommands({
+        taskId: task.id,
+        runId: developer.run.id,
+        worktreePath: task.worktreePath ?? project.rootPath,
+        commands: verifyCommands,
+        timeoutSeconds:
+          projectConfig?.verify_timeout_seconds ?? DEFAULT_VERIFY_TIMEOUT_SECONDS,
+        tasksDir: context.paths.tasksDir,
+        env: options.env ?? {},
+      });
+      verifications = outcomes.map((outcome) =>
+        store.recordVerification({
+          taskId: task.id,
+          runId: developer.run.id,
+          ...outcome,
+        }),
+      );
+      const failed = verifications.filter(
+        (verification) => verification.state !== 'passed',
+      );
+      if (failed.length > 0) {
+        task = store.rejectReview(
+          task.id,
+          verificationFeedback(failed),
+          maxIterations,
+        );
+        return {
+          task,
+          outcome: outcomeFor(task),
+          stage: task.stage,
+          runs: store.listRuns(task.id),
+          report: developer.report,
+          developerReport,
+          testerReport: null,
+          verifications,
+          commitSha: task.commitSha,
+          prUrl: task.prUrl,
+        };
+      }
     }
 
     const tester = await runStage(store, context, {
@@ -212,6 +267,8 @@ export async function runPipeline(
       continuePipeline: true,
       keepTaskRunning: true,
       developerReportPath,
+      verifications,
+      verifyCommands,
       agent: testerAgent,
       model: testerModel,
     });
@@ -227,6 +284,7 @@ export async function runPipeline(
         report: tester.report,
         developerReport,
         testerReport,
+        verifications,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -251,6 +309,7 @@ export async function runPipeline(
         report: tester.report,
         developerReport,
         testerReport,
+        verifications,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -284,6 +343,7 @@ export async function runPipeline(
       report: tester.report,
       developerReport,
       testerReport,
+      verifications,
       commitSha: task.commitSha,
       prUrl: task.prUrl,
     };
@@ -302,11 +362,49 @@ export async function runPipeline(
       report: testerReport ?? developerReport,
       developerReport,
       testerReport,
+      verifications: store.listVerifications(task.id),
       commitSha: store.getTaskOrThrow(task.id).commitSha,
       prUrl: store.getTaskOrThrow(task.id).prUrl,
       error: message,
     };
   }
+}
+
+function verificationCommands(
+  projectConfig: ReturnType<typeof readProjectConfig>,
+  task: Task,
+): string[] {
+  const commands = [
+    ...(projectConfig?.verify ?? []),
+    ...(task.spec?.acceptance_criteria
+      .map((criterion) => criterion.verify)
+      .filter((command): command is string => Boolean(command)) ?? []),
+  ];
+  return [...new Set(commands.map((command) => command.trim()).filter(Boolean))];
+}
+
+function verificationFeedback(results: VerificationResult[]): string {
+  const lines = ['Independent verification failed:'];
+  for (const result of results) {
+    const exit =
+      result.exitCode === null ? result.state : `exit ${result.exitCode}`;
+    lines.push(`- \`${result.command}\` (${exit})`);
+    if (result.timedOut) {
+      lines.push('  Timed out');
+    }
+    if (result.error) {
+      lines.push(`  Error: ${result.error}`);
+    }
+    const output = result.output.trim();
+    if (output) {
+      lines.push('  Output (tail):');
+      for (const line of output.slice(-2000).split('\n')) {
+        lines.push(`  ${line}`);
+      }
+    }
+    lines.push(`  Log: ${result.logPath}`);
+  }
+  return lines.join('\n');
 }
 
 function rejectFeedback(report: Report): string {
