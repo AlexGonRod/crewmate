@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { isPidAlive } from '../core/process';
 import { isTerminalTaskState } from '../core/state';
 import { readProjectConfig, type ResolvedContext } from '../config/config';
 import { detectHarness } from '../adapters/harness/detect';
@@ -17,15 +18,6 @@ export interface DoctorCheck {
 export interface DoctorResult {
   ok: boolean;
   checks: DoctorCheck[];
-}
-
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
 }
 
 export function runDoctor(store: Store, context: ResolvedContext): DoctorResult {
@@ -104,6 +96,22 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
         detail: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  const lease = store.getLease('daemon');
+  if (!lease) {
+    checks.push({
+      name: 'daemon.lease',
+      status: 'ok',
+      detail: 'no daemon lease',
+    });
+  } else {
+    const active = Date.parse(lease.expiresAt) > Date.now();
+    checks.push({
+      name: 'daemon.lease',
+      status: active ? 'ok' : 'warn',
+      detail: `${lease.owner} expires ${lease.expiresAt}`,
+    });
   }
 
   const activeRuns = store.listActiveRuns();

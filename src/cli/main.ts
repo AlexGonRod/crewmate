@@ -3,12 +3,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, CommanderError } from 'commander';
 import pc from 'picocolors';
+import { runDaemon, type DaemonTaskResult } from '../app/daemon';
 import { addProject, initProject } from '../app/projects';
 import { detectHarness } from '../adapters/harness/detect';
 import { listHarnessAdapters } from '../adapters/harness/registry';
 import { runTask } from '../app/run-task';
 import { loadContext, readProjectConfig, type ResolvedContext } from '../config/config';
 import { CrewError, errorMessage } from '../core/errors';
+import { isPidAlive, terminateProcessTree } from '../core/process';
 import { redactDeep } from '../core/redact';
 import type { DeliveryMode, TaskSpec, TaskState } from '../core/types';
 import { runDoctor } from '../doctor/doctor';
@@ -514,25 +516,37 @@ function buildProgram(): Command {
     });
 
   task
+    .command('queue <id>')
+    .description('queue a draft task for the daemon')
+    .action(async (id: string) => {
+      const updated = await withStore((store) => store.queueTask(id));
+      if (globalOptions().json) {
+        printJson({ task: updated });
+      } else {
+        console.log(`Task ${updated.id} is now ${updated.state}`);
+      }
+    });
+
+  task
+    .command('retry <id>')
+    .description('re-queue a failed task')
+    .action(async (id: string) => {
+      const updated = await withStore((store) => store.retryTask(id));
+      if (globalOptions().json) {
+        printJson({ task: updated });
+      } else {
+        console.log(`Task ${updated.id} is now ${updated.state}`);
+      }
+    });
+
+  task
     .command('cancel <id>')
     .description('cancel a task and its active process')
     .action(async (id: string) => {
       const updated = await withStore((store) => {
         const active = store.getActiveRun(id);
         if (active?.pid) {
-          try {
-            if (process.platform !== 'win32') {
-              process.kill(-active.pid, 'SIGTERM');
-            } else {
-              process.kill(active.pid, 'SIGTERM');
-            }
-          } catch {
-            try {
-              process.kill(active.pid, 'SIGTERM');
-            } catch {
-              // The process may already be gone.
-            }
-          }
+          terminateProcessTree(active.pid, 'SIGTERM');
         }
         return store.cancelTask(id);
       });
@@ -567,6 +581,164 @@ function buildProgram(): Command {
         printJson({ task: cleaned });
       } else {
         console.log(`Removed worktree for ${cleaned.id}; branch ${cleaned.branch ?? '-'} kept`);
+      }
+    });
+
+  const daemon = program.command('daemon').description('run and supervise queued tasks');
+
+  daemon
+    .command('run')
+    .description('process queued tasks until stopped')
+    .option('--once', 'process at most one task and exit')
+    .option('--interval <seconds>', 'idle poll interval', Number, 5)
+    .option('--max-tasks <n>', 'stop after N tasks', Number)
+    .option('--harness <id>', 'harness adapter: fake, opencode, or auto')
+    .option('--timeout <seconds>', 'timeout per task', Number)
+    .option('--env <key=value>', 'extra environment variable', collect, [])
+    .option('--stale-after <seconds>', 'lost-run grace period', Number, 30)
+    .option('--quiet', 'do not stream agent output')
+    .action(
+      async (options: {
+        once?: boolean;
+        interval: number;
+        maxTasks?: number;
+        harness?: string;
+        timeout?: number;
+        env: string[];
+        staleAfter: number;
+        quiet?: boolean;
+      }) => {
+        const json = globalOptions().json;
+        const once = Boolean(options.once);
+        const controller = new AbortController();
+        const stop = (): void => controller.abort();
+        process.once('SIGINT', stop);
+        process.once('SIGTERM', stop);
+
+        const printTask = (entry: DaemonTaskResult): void => {
+          if (json && !once) {
+            process.stdout.write(
+              `${JSON.stringify({ event: 'task', ...entry }, jsonReplacer)}\n`,
+            );
+            return;
+          }
+          if (!json) {
+            const detail = entry.error ? ` (${entry.error})` : '';
+            console.log(`Task ${entry.taskId}: ${stateLabel(entry.taskState)}${detail}`);
+          }
+        };
+
+        try {
+          const result = await withStore((store, context) =>
+            runDaemon(store, context, {
+              once,
+              intervalMs: options.interval * 1000,
+              maxTasks: options.maxTasks,
+              harnessId: options.harness,
+              timeoutSeconds: options.timeout,
+              env: parseEnv(options.env),
+              quiet: Boolean(options.quiet || json),
+              staleAfterMs: options.staleAfter * 1000,
+              signal: controller.signal,
+              onTask: printTask,
+              onReclaim: (run) => {
+                if (json && !once) {
+                  process.stdout.write(
+                    `${JSON.stringify({ event: 'run.lost', ...run }, jsonReplacer)}\n`,
+                  );
+                } else if (!json) {
+                  console.log(
+                    `Reclaimed run ${run.runId} (${run.reason}); task ${run.taskId} is ${run.taskState}`,
+                  );
+                }
+              },
+            }),
+          );
+
+          if (json) {
+            if (once) {
+              printJson(result);
+            } else {
+              process.stdout.write(
+                `${JSON.stringify({ event: 'daemon.stopped', ...result }, jsonReplacer)}\n`,
+              );
+            }
+          } else {
+            console.log(
+              `Daemon ${result.owner} stopped (${result.stopped}); ${result.processed.length} task(s), ${result.reclaimed.length} reclaimed`,
+            );
+          }
+
+          if (
+            once &&
+            result.processed.some((entry) => entry.taskState !== 'done')
+          ) {
+            process.exitCode = 1;
+          }
+        } finally {
+          process.off('SIGINT', stop);
+          process.off('SIGTERM', stop);
+        }
+      },
+    );
+
+  daemon
+    .command('status')
+    .description('show the daemon lease, active runs, and queued tasks')
+    .action(async () => {
+      const status = await withStore((store) => {
+        const lease = store.getLease('daemon');
+        return {
+          lease: lease
+            ? { ...lease, active: Date.parse(lease.expiresAt) > Date.now() }
+            : null,
+          active_runs: store.listActiveRuns(),
+          queued_tasks: store.listTasks('queued').length,
+          now: new Date().toISOString(),
+        };
+      });
+      if (globalOptions().json) {
+        printJson(status);
+        return;
+      }
+      if (status.lease) {
+        console.log(
+          `Lease: ${status.lease.owner} (${status.lease.active ? 'active' : 'expired'}, expires ${status.lease.expiresAt})`,
+        );
+      } else {
+        console.log('Lease: none');
+      }
+      console.log(`Queued tasks: ${status.queued_tasks}`);
+      console.log(`Active runs: ${status.active_runs.length}`);
+      for (const run of status.active_runs) {
+        const alive = run.pid !== null && isPidAlive(run.pid);
+        console.log(
+          `  ${run.id} task=${run.taskId} pid=${run.pid ?? '-'} alive=${alive ? 'yes' : 'no'}`,
+        );
+      }
+    });
+
+  daemon
+    .command('reconcile')
+    .description('mark dead active runs as lost and fail their tasks')
+    .option('--stale-after <seconds>', 'grace period for runs without a pid', Number, 30)
+    .action(async (options: { staleAfter: number }) => {
+      const result = await withStore((store) => ({
+        lost: store.reconcileStaleRuns({
+          isAlive: isPidAlive,
+          staleAfterMs: options.staleAfter * 1000,
+        }),
+      }));
+      if (globalOptions().json) {
+        printJson(result);
+      } else if (result.lost.length === 0) {
+        console.log('No stale runs');
+      } else {
+        for (const run of result.lost) {
+          console.log(
+            `Lost run ${run.runId} (${run.reason}); task ${run.taskId} is ${run.taskState}`,
+          );
+        }
       }
     });
 

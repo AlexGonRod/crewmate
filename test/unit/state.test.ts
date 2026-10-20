@@ -11,6 +11,7 @@ describe('task state machine', () => {
   it('allows the phase 0 lifecycle', () => {
     expect(canTransitionTask('draft', 'queued')).toBe(true);
     expect(canTransitionTask('queued', 'starting')).toBe(true);
+    expect(canTransitionTask('queued', 'failed')).toBe(true);
     expect(canTransitionTask('starting', 'running')).toBe(true);
     expect(canTransitionTask('running', 'done')).toBe(true);
     expect(canTransitionTask('running', 'failed')).toBe(true);

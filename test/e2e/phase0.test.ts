@@ -431,6 +431,80 @@ describe('phase 0 walking skeleton', () => {
     expect(failed.payload.reason).toContain('phases: red');
   });
 
+  it('queues a task and runs it through the daemon', () => {
+    const id = createTask('Daemon success');
+    expect(cli(['--json', 'task', 'queue', id]).json.task.state).toBe('queued');
+
+    const statusBefore = cli(['--json', 'daemon', 'status']);
+    expect(statusBefore.status, statusBefore.stderr).toBe(0);
+    expect(statusBefore.json.queued_tasks).toBe(1);
+    expect(statusBefore.json.lease).toBeNull();
+
+    const result = cli([
+      '--json',
+      'daemon',
+      'run',
+      '--once',
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=success',
+      '--quiet',
+    ]);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.stopped).toBe('once');
+    expect(result.json.processed).toHaveLength(1);
+    expect(result.json.processed[0].taskState).toBe('done');
+    expect(result.json.processed[0].reportStatus).toBe('done');
+
+    const statusAfter = cli(['--json', 'daemon', 'status']);
+    expect(statusAfter.json.queued_tasks).toBe(0);
+    expect(statusAfter.json.lease).toBeNull();
+    expect(cli(['--json', 'task', 'show', id]).json.task.state).toBe('done');
+  });
+
+  it('reclaims stale runs and retries the failed task', () => {
+    const id = createTask('Daemon retry');
+    cli(['--json', 'task', 'queue', id]);
+
+    const crashed = cli([
+      '--json',
+      'daemon',
+      'run',
+      '--once',
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=crash',
+      '--quiet',
+    ]);
+    expect(crashed.status).toBe(1);
+    expect(crashed.json.processed[0].taskState).toBe('failed');
+
+    const reconciled = cli(['--json', 'daemon', 'reconcile']);
+    expect(reconciled.status, reconciled.stderr).toBe(0);
+    expect(reconciled.json.lost).toEqual([]);
+
+    const retried = cli(['--json', 'task', 'retry', id]);
+    expect(retried.status, retried.stderr).toBe(0);
+    expect(retried.json.task.state).toBe('queued');
+
+    const result = cli([
+      '--json',
+      'daemon',
+      'run',
+      '--once',
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=success',
+      '--quiet',
+    ]);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.processed[0].taskState).toBe('done');
+    expect(cli(['--json', 'task', 'show', id]).json.task.state).toBe('done');
+  });
+
   it('keeps the main checkout free of tracked changes', () => {
     const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
       cwd: repo,

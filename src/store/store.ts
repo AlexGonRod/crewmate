@@ -3,6 +3,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { CrewError } from '../core/errors';
 import { newId, nowIso } from '../core/ids';
+import { isPidAlive } from '../core/process';
 import { slugify } from '../core/slug';
 import {
   assertTaskTransition,
@@ -121,6 +122,14 @@ interface EventRow {
   causation_id: string | null;
 }
 
+interface LeaseRow {
+  resource: string;
+  owner: string;
+  acquired_at: string;
+  expires_at: string;
+  heartbeat_at: string;
+}
+
 function toProject(row: ProjectRow): Project {
   return {
     id: row.id,
@@ -210,6 +219,16 @@ function toArtifact(row: ArtifactRow): Artifact {
   };
 }
 
+function toLease(row: LeaseRow): Lease {
+  return {
+    resource: row.resource,
+    owner: row.owner,
+    acquiredAt: row.acquired_at,
+    expiresAt: row.expires_at,
+    heartbeatAt: row.heartbeat_at,
+  };
+}
+
 function toEvent(row: EventRow): EventRecord {
   return {
     seq: row.seq,
@@ -260,6 +279,28 @@ export interface FinishRunInput {
   signal: string | null;
   timedOut: boolean;
   reportError?: string;
+}
+
+export interface Lease {
+  resource: string;
+  owner: string;
+  acquiredAt: string;
+  expiresAt: string;
+  heartbeatAt: string;
+}
+
+export interface LostRun {
+  runId: string;
+  taskId: string;
+  pid: number | null;
+  reason: string;
+  taskState: TaskState;
+}
+
+export interface ReconcileOptions {
+  isAlive?: (pid: number) => boolean;
+  staleAfterMs?: number;
+  now?: number;
 }
 
 export class Store {
@@ -981,6 +1022,172 @@ export class Store {
       });
       return this.getTaskOrThrow(task.id);
     });
+  }
+
+  nextQueuedTask(): Task | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM tasks
+         WHERE state = 'queued'
+         ORDER BY priority DESC, created_at ASC
+         LIMIT 1`,
+      )
+      .get() as TaskRow | undefined;
+    return row ? toTask(row) : null;
+  }
+
+  queueTask(taskId: string): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      if (task.state === 'queued') {
+        return task;
+      }
+      if (task.state !== 'draft') {
+        throw new CrewError(
+          'TASK_NOT_DRAFT',
+          `Task ${task.id} is ${task.state}; expected draft`,
+        );
+      }
+      return this.setTaskState(task, 'queued', 'task.queued');
+    });
+  }
+
+  retryTask(taskId: string): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      if (task.state !== 'failed') {
+        throw new CrewError(
+          'TASK_NOT_FAILED',
+          `Task ${task.id} is ${task.state}; only failed tasks can be retried`,
+        );
+      }
+      return this.setTaskState(task, 'queued', 'task.queued', { reason: 'retry' });
+    });
+  }
+
+  failTask(taskId: string, reason: string): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      if (isTerminalTaskState(task.state)) {
+        return task;
+      }
+      assertTaskTransition(task.state, 'failed');
+      return this.setTaskState(task, 'failed', 'task.failed', { reason });
+    });
+  }
+
+  reconcileStaleRuns(options: ReconcileOptions = {}): LostRun[] {
+    const isAlive = options.isAlive ?? isPidAlive;
+    const staleAfterMs = options.staleAfterMs ?? 30_000;
+    const now = options.now ?? Date.now();
+
+    return this.transaction(() => {
+      const lost: LostRun[] = [];
+      for (const run of this.listActiveRuns()) {
+        let reason: string;
+        if (run.pid !== null) {
+          if (isAlive(run.pid)) {
+            continue;
+          }
+          reason = `process ${run.pid} is not running`;
+        } else {
+          const age = now - Date.parse(run.startedAt);
+          if (age < staleAfterMs) {
+            continue;
+          }
+          reason = 'run never recorded a pid';
+        }
+
+        const endedAt = new Date(now).toISOString();
+        this.db
+          .prepare(
+            `UPDATE runs SET state = 'lost', ended_at = ?
+             WHERE id = ? AND state IN ('starting', 'running')`,
+          )
+          .run(endedAt, run.id);
+        this.appendEvent({
+          aggregateType: 'run',
+          aggregateId: run.id,
+          taskId: run.taskId,
+          type: 'run.lost',
+          payload: { pid: run.pid, reason },
+        });
+
+        const task = this.getTaskOrThrow(run.taskId);
+        let taskState = task.state;
+        if (task.state === 'starting' || task.state === 'running') {
+          const failed = this.setTaskState(task, 'failed', 'task.failed', {
+            reason: `Run ${run.id} lost: ${reason}`,
+          });
+          taskState = failed.state;
+        }
+        lost.push({
+          runId: run.id,
+          taskId: run.taskId,
+          pid: run.pid,
+          reason,
+          taskState,
+        });
+      }
+      return lost;
+    });
+  }
+
+  getLease(resource: string): Lease | null {
+    const row = this.db
+      .prepare('SELECT * FROM leases WHERE resource = ?')
+      .get(resource) as LeaseRow | undefined;
+    return row ? toLease(row) : null;
+  }
+
+  acquireLease(
+    resource: string,
+    owner: string,
+    ttlSeconds: number,
+    now = Date.now(),
+  ): Lease | null {
+    const acquiredAt = new Date(now).toISOString();
+    const expiresAt = new Date(now + Math.max(1, ttlSeconds) * 1000).toISOString();
+    const result = this.db
+      .prepare(
+        `INSERT INTO leases (resource, owner, acquired_at, expires_at, heartbeat_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(resource) DO UPDATE SET
+           owner = excluded.owner,
+           acquired_at = excluded.acquired_at,
+           expires_at = excluded.expires_at,
+           heartbeat_at = excluded.heartbeat_at
+         WHERE leases.expires_at <= excluded.acquired_at`,
+      )
+      .run(resource, owner, acquiredAt, expiresAt, acquiredAt);
+    if (Number(result.changes) === 0) {
+      return null;
+    }
+    return this.getLease(resource);
+  }
+
+  renewLease(
+    resource: string,
+    owner: string,
+    ttlSeconds: number,
+    now = Date.now(),
+  ): boolean {
+    const heartbeatAt = new Date(now).toISOString();
+    const expiresAt = new Date(now + Math.max(1, ttlSeconds) * 1000).toISOString();
+    const result = this.db
+      .prepare(
+        `UPDATE leases SET expires_at = ?, heartbeat_at = ?
+         WHERE resource = ? AND owner = ?`,
+      )
+      .run(expiresAt, heartbeatAt, resource, owner);
+    return Number(result.changes) > 0;
+  }
+
+  releaseLease(resource: string, owner: string): boolean {
+    const result = this.db
+      .prepare('DELETE FROM leases WHERE resource = ? AND owner = ?')
+      .run(resource, owner);
+    return Number(result.changes) > 0;
   }
 
   listEvents(options: {
