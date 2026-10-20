@@ -108,12 +108,18 @@ Estado: **completada**.
 
 ### 2.3 Gate de CI
 
-Estado: **pendiente**.
+Estado: **completada**.
 
-- Integración inicial con GitHub Actions.
-- El estado de CI se consulta antes de pasar a `review` y antes de mergear.
+- Integración con GitHub Actions mediante los check-runs del commit del PR.
+- El estado de CI se consulta antes de pasar a `review`; `task accept` exige que
+  el último resultado sea `passed`.
 - `verify` sigue siendo el fallback para proyectos sin CI configurada.
-- Un CI fallido o pendiente bloquea la entrega con un error claro.
+- Un CI fallido, desconocido o agotado por timeout bloquea la entrega con un
+  error claro.
+- El resultado se guarda como artefacto `ci` y evento `ci.completed`, y se
+  reutilizará en el auto-merge de la Fase 2.4.
+
+Referencia: ADR 0010.
 
 ### 2.4 Auto-merge con guardrails
 
@@ -299,3 +305,4 @@ concurrencia.
 - ADR 0007: pipeline developer → tester y revisión humana.
 - ADR 0008: verificación independiente y determinista.
 - ADR 0009: separación entre motor determinista y capa capitán.
+- ADR 0010: gate de CI con GitHub Actions.

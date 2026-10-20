@@ -38,6 +38,27 @@ export type TestPhase = 'red' | 'green' | 'refactor';
 
 export type VerificationState = 'passed' | 'failed' | 'error';
 
+export type CiProvider = 'github_actions';
+
+export type CiState = 'passed' | 'failed' | 'error';
+
+export interface CiCheck {
+  name: string;
+  state: string;
+  bucket: string;
+  link?: string;
+}
+
+export interface CiResult {
+  provider: CiProvider;
+  state: CiState;
+  summary: string;
+  url: string;
+  checks: CiCheck[];
+  durationMs: number;
+  error?: string;
+}
+
 export interface VerificationResult {
   id: string;
   taskId: string;

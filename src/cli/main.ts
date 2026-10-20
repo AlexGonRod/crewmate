@@ -151,6 +151,13 @@ function renderTaskDetail(detail: ReturnType<Store['getTaskDetail']>): void {
   console.log(`Stage:     ${task.stage} (review iterations: ${task.reviewIterations})`);
   console.log(`Commit:    ${task.commitSha ?? '-'}`);
   console.log(`PR:        ${task.prUrl ?? '-'}`);
+  const ci = detail.artifacts.filter((artifact) => artifact.kind === 'ci').at(-1);
+  if (ci) {
+    const state = typeof ci.metadata?.state === 'string' ? ci.metadata.state : 'unknown';
+    const summary =
+      typeof ci.metadata?.summary === 'string' ? ci.metadata.summary : ci.ref;
+    console.log(`CI:        ${state} - ${summary}`);
+  }
   console.log(`Delivery:  ${task.deliveryMode}`);
   console.log(`Method:    ${task.methodology}`);
   console.log(`Created:   ${task.createdAt}`);
@@ -569,6 +576,9 @@ function buildProgram(): Command {
           if (result.prUrl) {
             console.log(`PR: ${result.prUrl}`);
           }
+          if (result.ci) {
+            console.log(`CI: ${result.ci.state} - ${result.ci.summary}`);
+          }
           if (result.error) {
             console.log(`Error: ${result.error}`);
           }
@@ -600,6 +610,22 @@ function buildProgram(): Command {
               'PR_NOT_MERGED',
               `Pull request ${task.prUrl} is ${pullRequest.state}; merge it or use --force`,
             );
+          }
+          if (readProjectConfig(project.rootPath)?.ci) {
+            const ci = store
+              .listArtifacts(id)
+              .filter((artifact) => artifact.kind === 'ci')
+              .at(-1);
+            const state =
+              typeof ci?.metadata?.state === 'string'
+                ? ci.metadata.state
+                : 'missing';
+            if (state !== 'passed') {
+              throw new CrewError(
+                'CI_NOT_PASSED',
+                `CI gate is ${state}; rerun the task or use --force`,
+              );
+            }
           }
         }
         return store.acceptTask(id);

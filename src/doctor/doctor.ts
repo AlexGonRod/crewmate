@@ -96,9 +96,15 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
   });
 
   const projects = store.listProjects();
+  let needsGitHub =
+    context.config.delivery === 'pr' ||
+    store.listTasks().some((task) => task.deliveryMode === 'pr');
   for (const project of projects) {
     try {
       const config = readProjectConfig(project.rootPath);
+      if (config?.delivery === 'pr' || config?.ci) {
+        needsGitHub = true;
+      }
       if (
         config?.methodology &&
         config.methodology !== 'free' &&
@@ -119,10 +125,6 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
     }
   }
 
-  const needsGitHub =
-    context.config.delivery === 'pr' ||
-    store.listTasks().some((task) => task.deliveryMode === 'pr') ||
-    projects.some((project) => readProjectConfig(project.rootPath)?.delivery === 'pr');
   if (needsGitHub) {
     const result = spawnSync('gh', ['auth', 'status'], {
       encoding: 'utf8',

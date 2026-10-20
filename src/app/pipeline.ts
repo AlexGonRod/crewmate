@@ -1,5 +1,6 @@
 import { CrewError, errorMessage } from '../core/errors';
 import type {
+  CiResult,
   DeliveryMode,
   PipelineStage,
   Report,
@@ -12,6 +13,11 @@ import { readProjectConfig } from '../config/config';
 import type { Store } from '../store/store';
 import { commitWorktree, pushBranch } from '../git/commit';
 import { assertGhReady, createPullRequest } from '../git/forge';
+import {
+  DEFAULT_CI_INTERVAL_SECONDS,
+  DEFAULT_CI_TIMEOUT_SECONDS,
+  waitForCiGate,
+} from '../ci/ci';
 import { currentBranch } from '../git/git';
 import {
   DEFAULT_VERIFY_TIMEOUT_SECONDS,
@@ -51,6 +57,7 @@ export interface PipelineResult {
   developerReport: Report | null;
   testerReport: Report | null;
   verifications: VerificationResult[];
+  ci: CiResult | null;
   commitSha: string | null;
   prUrl: string | null;
   error?: string;
@@ -135,6 +142,7 @@ export async function runPipeline(
   let testerReport: Report | null = null;
   let developerReportPath: string | undefined;
   let verifications: VerificationResult[] = [];
+  let ci: CiResult | null = null;
 
   try {
     if (task.state === 'review') {
@@ -147,6 +155,7 @@ export async function runPipeline(
         developerReport: store.getLatestReportByRole(task.id, 'developer'),
         testerReport: store.getLatestReportByRole(task.id, 'tester'),
         verifications: store.listVerifications(task.id),
+        ci: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -161,6 +170,7 @@ export async function runPipeline(
         developerReport: store.getLatestReportByRole(task.id, 'developer'),
         testerReport: store.getLatestReportByRole(task.id, 'tester'),
         verifications: store.listVerifications(task.id),
+        ci: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -191,6 +201,7 @@ export async function runPipeline(
         developerReport,
         testerReport: null,
         verifications,
+        ci: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -211,6 +222,7 @@ export async function runPipeline(
         developerReport,
         testerReport: null,
         verifications,
+        ci: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -252,6 +264,7 @@ export async function runPipeline(
           developerReport,
           testerReport: null,
           verifications,
+          ci: null,
           commitSha: task.commitSha,
           prUrl: task.prUrl,
         };
@@ -285,6 +298,7 @@ export async function runPipeline(
         developerReport,
         testerReport,
         verifications,
+        ci: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -310,6 +324,7 @@ export async function runPipeline(
         developerReport,
         testerReport,
         verifications,
+        ci: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -332,6 +347,35 @@ export async function runPipeline(
         body: pullRequestBody(task, developerReport),
       });
       task = store.recordPullRequest(task.id, pullRequest.url);
+
+      if (projectConfig?.ci) {
+        ci = await waitForCiGate({
+          cwd: project.rootPath,
+          prUrl: pullRequest.url,
+          commitSha: commit.sha,
+          timeoutSeconds:
+            projectConfig.ci.timeout_seconds ?? DEFAULT_CI_TIMEOUT_SECONDS,
+          intervalSeconds:
+            projectConfig.ci.interval_seconds ?? DEFAULT_CI_INTERVAL_SECONDS,
+        });
+        task = store.recordCiCheck(task.id, ci);
+        if (ci.state !== 'passed') {
+          task = store.failTask(task.id, `CI gate failed: ${ci.summary}`);
+          return {
+            task,
+            outcome: 'failed',
+            stage: task.stage,
+            runs: store.listRuns(task.id),
+            report: tester.report,
+            developerReport,
+            testerReport,
+            verifications,
+            ci,
+            commitSha: task.commitSha,
+            prUrl: task.prUrl,
+          };
+        }
+      }
     }
 
     task = store.requestReview(task.id);
@@ -344,6 +388,7 @@ export async function runPipeline(
       developerReport,
       testerReport,
       verifications,
+      ci,
       commitSha: task.commitSha,
       prUrl: task.prUrl,
     };
@@ -363,6 +408,7 @@ export async function runPipeline(
       developerReport,
       testerReport,
       verifications: store.listVerifications(task.id),
+      ci,
       commitSha: store.getTaskOrThrow(task.id).commitSha,
       prUrl: store.getTaskOrThrow(task.id).prUrl,
       error: message,

@@ -122,6 +122,26 @@ if (args[0] === 'pr' && args[1] === 'view') {
   process.stdout.write(JSON.stringify(item));
   process.exit(0);
 }
+if (args[0] === 'api' && args[1].includes('/check-runs')) {
+  const mode = process.env.GH_CI_STATE || 'pass';
+  const checkRuns = mode === 'none'
+    ? []
+    : mode === 'fail'
+      ? [{
+          name: 'test',
+          status: 'completed',
+          conclusion: 'failure',
+          html_url: 'https://ci/1',
+        }]
+      : [{
+          name: 'test',
+          status: 'completed',
+          conclusion: 'success',
+          html_url: 'https://ci/1',
+        }];
+  process.stdout.write(JSON.stringify({ total_count: checkRuns.length, check_runs: checkRuns }));
+  process.exit(0);
+}
 process.stderr.write('gh shim: unsupported ' + args.join(' ') + '\\n');
 process.exit(1);
 `,
@@ -136,7 +156,14 @@ process.exit(1);
       configPath,
       configText.replace(
         'verify: []',
-        'verify:\n  - test -f FAKE_AGENT_OUTPUT.txt',
+        [
+          'verify:',
+          '  - test -f FAKE_AGENT_OUTPUT.txt',
+          'ci:',
+          '  provider: github_actions',
+          '  timeout_seconds: 10',
+          '  interval_seconds: 1',
+        ].join('\n'),
       ),
     );
     const added = cli(['--json', 'project', 'add', '.', '--name', 'demo']);
@@ -186,6 +213,7 @@ process.exit(1);
     expect(run.json.prUrl).toBe('https://github.com/acme/demo/pull/1');
     expect(run.json.commitSha).toBeTruthy();
     expect(run.json.verifications[0].state).toBe('passed');
+    expect(run.json.ci.state).toBe('passed');
 
     const branch = run.json.task.branch as string;
     const refs = execFileSync('git', ['--git-dir', remote, 'show-ref'], {
@@ -207,5 +235,110 @@ process.exit(1);
     const accepted = cli(['--json', 'task', 'accept', id]);
     expect(accepted.status, accepted.stderr).toBe(0);
     expect(accepted.json.task.state).toBe('done');
+  });
+
+  it('fails the task when CI does not pass', () => {
+    env.GH_CI_STATE = 'fail';
+    try {
+      const created = cli([
+        '--json',
+        'task',
+        'create',
+        '--project',
+        'demo',
+        '--title',
+        'Failing CI task',
+        '--brief',
+        'Create another marker file',
+        '--methodology',
+        'free',
+        '--delivery',
+        'pr',
+      ]);
+      expect(created.status, created.stderr).toBe(0);
+      const id = created.json.task.id as string;
+
+      const run = cli([
+        '--json',
+        'task',
+        'run',
+        id,
+        '--harness',
+        'fake',
+        '--env',
+        'CREW_FAKE_SCENARIO=success',
+        '--timeout',
+        '10',
+      ]);
+      expect(run.status).toBe(1);
+      expect(run.json.task.state).toBe('failed');
+      expect(run.json.ci.state).toBe('failed');
+      expect(run.json.ci.summary).toContain('test');
+
+      const shown = cli(['--json', 'task', 'show', id]);
+      expect(
+        shown.json.artifacts.some(
+          (artifact: { kind: string }) => artifact.kind === 'ci',
+        ),
+      ).toBe(true);
+      expect(
+        shown.json.events.some(
+          (event: { type: string }) => event.type === 'ci.completed',
+        ),
+      ).toBe(true);
+    } finally {
+      delete env.GH_CI_STATE;
+    }
+  });
+
+  it('fails the task when no CI checks are reported before the timeout', () => {
+    env.GH_CI_STATE = 'none';
+    const configPath = path.join(repo, '.crew', 'config.yaml');
+    const originalConfig = readFileSync(configPath, 'utf8');
+    writeFileSync(
+      configPath,
+      originalConfig
+        .replace('timeout_seconds: 10', 'timeout_seconds: 1')
+        .replace('interval_seconds: 1', 'interval_seconds: 0.1'),
+    );
+    try {
+      const created = cli([
+        '--json',
+        'task',
+        'create',
+        '--project',
+        'demo',
+        '--title',
+        'Missing CI task',
+        '--brief',
+        'Create a third marker file',
+        '--methodology',
+        'free',
+        '--delivery',
+        'pr',
+      ]);
+      expect(created.status, created.stderr).toBe(0);
+      const id = created.json.task.id as string;
+
+      const run = cli([
+        '--json',
+        'task',
+        'run',
+        id,
+        '--harness',
+        'fake',
+        '--env',
+        'CREW_FAKE_SCENARIO=success',
+        '--timeout',
+        '10',
+      ]);
+      expect(run.status).toBe(1);
+      expect(run.json.task.state).toBe('failed');
+      expect(run.json.ci.state).toBe('error');
+      expect(run.json.ci.summary).toContain('did not finish within 1s');
+    } finally {
+      writeFileSync(configPath, originalConfig);
+      delete env.GH_CI_STATE;
+    }
   });
 });

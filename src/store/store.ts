@@ -14,6 +14,7 @@ import {
 import type {
   AgentRole,
   Artifact,
+  CiResult,
   DeliveryMode,
   EventRecord,
   Message,
@@ -1472,6 +1473,40 @@ export class Store {
         taskId: task.id,
         type: 'git.committed',
         payload: { commit_sha: sha },
+      });
+      return this.getTaskOrThrow(task.id);
+    });
+  }
+
+  recordCiCheck(taskId: string, result: CiResult): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      const createdAt = nowIso();
+      this.db
+        .prepare(
+          `INSERT INTO artifacts (id, task_id, run_id, kind, ref, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          newId('art'),
+          task.id,
+          null,
+          'ci',
+          result.url,
+          JSON.stringify(result),
+          createdAt,
+        );
+      this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'ci.completed',
+        payload: {
+          state: result.state,
+          summary: result.summary,
+          url: result.url,
+          provider: result.provider,
+        },
       });
       return this.getTaskOrThrow(task.id);
     });

@@ -101,6 +101,7 @@ const successfulExecutor: DaemonExecutor = async (store, _context, options) => {
     developerReport: store.getReportByRun(runId),
     testerReport: null,
     verifications: [],
+    ci: null,
     commitSha: task.commitSha,
     prUrl: task.prUrl,
   };

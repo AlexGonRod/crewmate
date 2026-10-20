@@ -58,6 +58,38 @@ describe('config', () => {
     expect(() => readProjectConfig(dir)).toThrow('verify_timeout_seconds');
   });
 
+  it('reads and validates project CI config', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
+    tempDirs.push(dir);
+    mkdirSync(path.join(dir, '.crew'), { recursive: true });
+    const configPath = path.join(dir, '.crew', 'config.yaml');
+
+    writeFileSync(
+      configPath,
+      [
+        'ci:',
+        '  provider: github_actions',
+        '  timeout_seconds: 120',
+        '  interval_seconds: 2',
+        '',
+      ].join('\n'),
+    );
+    expect(readProjectConfig(dir)?.ci).toEqual({
+      provider: 'github_actions',
+      timeout_seconds: 120,
+      interval_seconds: 2,
+    });
+
+    writeFileSync(configPath, 'ci:\n  provider: gitlab\n');
+    expect(() => readProjectConfig(dir)).toThrow('ci.provider');
+
+    writeFileSync(
+      configPath,
+      'ci:\n  provider: github_actions\n  timeout_seconds: 0\n',
+    );
+    expect(() => readProjectConfig(dir)).toThrow('ci.timeout_seconds');
+  });
+
   it('reads agents, review, and delivery from the global config', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
     tempDirs.push(dir);

@@ -31,6 +31,7 @@ Fases 0 y 1 completadas; Fase 2 en curso:
 - Briefs por rol y contratos de reporte `crew.report/v1`, v2 y v3.
 - Comandos `verify` del proyecto ejecutados por el orquestador, con exit code,
   salida y log durable.
+- Gate de CI de GitHub Actions antes de pasar a `review`, con resultado durable.
 - Rechazo del tester o de la verificación con feedback y límite configurable de
   iteraciones.
 - Entrega `local` o `pr` (GitHub mediante `gh`); `task accept` exige PR mergeado
@@ -185,6 +186,23 @@ verify:
 verify_timeout_seconds: 600
 ```
 
+El gate de CI se activa por proyecto y requiere `delivery: pr`:
+
+```yaml
+ci:
+  provider: github_actions
+  timeout_seconds: 900
+  interval_seconds: 10
+```
+
+El orquestador espera a que terminen los checks del commit del PR antes de pasar
+la tarea a `review`. Si fallan, quedan pendientes hasta el timeout o no se reportan, la
+tarea falla y conserva el PR y el artefacto `ci` para diagnóstico. `task accept`
+exige el último resultado `passed` cuando el proyecto tiene `ci`; `--force`
+omite esa comprobación. Si no hay `ci`, los comandos `verify` siguen siendo el
+gate principal. Decisión registrada en el
+[ADR 0010](docs/adr/0010-ci-gate.md).
+
 ## Pipeline de desarrollo
 
 `task run` y el daemon ejecutan el mismo pipeline:
@@ -198,7 +216,9 @@ verify_timeout_seconds: 600
 4. **Git**: si la verificación y el tester aprueban, se hace commit.
 5. **Delivery**:
    - `local`: la rama queda lista para revisión local.
-   - `pr`: se hace push y se abre un PR en GitHub con `gh`.
+   - `pr`: se hace push y se abre un PR en GitHub con `gh`. Si el proyecto
+     declara `ci`, se espera a que los checks terminen; un fallo o timeout falla
+     la tarea antes de `review`.
 6. **Review**: la tarea queda en `review`. `task reject` reencola al developer con
    el feedback; `task accept` la marca `done`.
 

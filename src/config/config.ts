@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parse } from 'yaml';
 import { CrewError } from '../core/errors';
-import type { DeliveryMode, Methodology } from '../core/types';
+import type { CiProvider, DeliveryMode, Methodology } from '../core/types';
 import { parseMethodology } from '../spec/spec';
 import { ensurePaths, resolvePaths, type CrewPaths } from './paths';
 
@@ -139,6 +139,12 @@ export function loadContext(options: { dbPath?: string } = {}): ResolvedContext 
   return { paths, config };
 }
 
+export interface ProjectCiConfig {
+  provider: CiProvider;
+  timeout_seconds?: number;
+  interval_seconds?: number;
+}
+
 export interface ProjectConfig {
   schema?: string;
   name?: string;
@@ -146,6 +152,7 @@ export interface ProjectConfig {
   methodology?: Methodology;
   verify?: string[];
   verify_timeout_seconds?: number;
+  ci?: ProjectCiConfig;
   delivery?: DeliveryMode;
   review?: {
     max_iterations?: number;
@@ -193,6 +200,36 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
           'PROJECT_CONFIG_INVALID',
           `verify_timeout_seconds must be a positive number in ${configPath}`,
         );
+      }
+    }
+    if (parsed.ci !== undefined) {
+      if (
+        !parsed.ci ||
+        typeof parsed.ci !== 'object' ||
+        Array.isArray(parsed.ci)
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `ci must be an object in ${configPath}`,
+        );
+      }
+      if (parsed.ci.provider !== 'github_actions') {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `ci.provider must be "github_actions" in ${configPath}`,
+        );
+      }
+      for (const key of ['timeout_seconds', 'interval_seconds'] as const) {
+        const value = parsed.ci[key];
+        if (
+          value !== undefined &&
+          (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+        ) {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `ci.${key} must be a positive number in ${configPath}`,
+          );
+        }
       }
     }
     if (parsed.delivery !== undefined) {
