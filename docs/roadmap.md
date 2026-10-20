@@ -123,13 +123,20 @@ Referencia: ADR 0010.
 
 ### 2.4 Auto-merge con guardrails
 
-Estado: **pendiente**.
+Estado: **completada**.
 
-- `delivery: auto_merge` por proyecto, opt-in explícito.
-- Requisitos: tester aprobado, verificación aprobada, CI verde y PR listo.
+- `delivery: auto_merge` por proyecto, opt-in explícito mediante
+  `auto_merge.method` (`merge`, `squash` o `rebase`).
+- Requisitos: política declarada, CI configurado y verde, verificación aprobada,
+  tester aprobado y PR abierto, no draft y mergeable.
 - `pr` sigue siendo el modo manual por defecto.
-- El merge nunca ocurre sin política declarada o confirmación del capitán.
-- Registro del actor, motivo y estado final del merge.
+- Sin política falla con `MERGE_POLICY_REQUIRED`; sin CI falla con
+  `CI_REQUIRED_FOR_AUTO_MERGE` antes de lanzar agentes.
+- El actor `crew` ejecuta el merge y registra método, motivo y estado final en el
+  artefacto `merge` y el evento `merge.completed`.
+- Un merge rechazado deja la tarea en `review` para resolución humana.
+
+Referencia: ADR 0011.
 
 ### 2.5 Concurrencia y scheduler
 
@@ -306,3 +313,4 @@ concurrencia.
 - ADR 0008: verificación independiente y determinista.
 - ADR 0009: separación entre motor determinista y capa capitán.
 - ADR 0010: gate de CI con GitHub Actions.
+- ADR 0011: auto-merge con guardrails.

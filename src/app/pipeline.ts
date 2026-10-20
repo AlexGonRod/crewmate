@@ -2,6 +2,7 @@ import { CrewError, errorMessage } from '../core/errors';
 import type {
   CiResult,
   DeliveryMode,
+  MergeResult,
   PipelineStage,
   Report,
   Run,
@@ -12,7 +13,12 @@ import type { ResolvedContext } from '../config/config';
 import { readProjectConfig } from '../config/config';
 import type { Store } from '../store/store';
 import { commitWorktree, pushBranch } from '../git/commit';
-import { assertGhReady, createPullRequest } from '../git/forge';
+import {
+  assertGhReady,
+  createPullRequest,
+  mergePullRequest,
+  viewPullRequest,
+} from '../git/forge';
 import {
   DEFAULT_CI_INTERVAL_SECONDS,
   DEFAULT_CI_TIMEOUT_SECONDS,
@@ -58,6 +64,7 @@ export interface PipelineResult {
   testerReport: Report | null;
   verifications: VerificationResult[];
   ci: CiResult | null;
+  merge: MergeResult | null;
   commitSha: string | null;
   prUrl: string | null;
   error?: string;
@@ -72,8 +79,12 @@ function outcomeFor(task: Task): PipelineOutcome {
   return 'failed';
 }
 
+function requiresGithubDelivery(mode: DeliveryMode): boolean {
+  return mode === 'pr' || mode === 'auto_merge';
+}
+
 function isUnsupportedDelivery(mode: DeliveryMode): boolean {
-  return mode === 'auto_merge' || mode === 'scout';
+  return mode === 'scout';
 }
 
 export async function runPipeline(
@@ -111,14 +122,28 @@ export async function runPipeline(
       `Delivery mode "${delivery}" is not supported yet`,
     );
   }
-  if (delivery === 'pr') {
+  if (requiresGithubDelivery(delivery)) {
     if (project.forge !== 'github') {
       throw new CrewError(
         'FORGE_UNSUPPORTED',
-        `Delivery mode "pr" requires a GitHub remote; found ${project.forge ?? 'none'}`,
+        `Delivery mode "${delivery}" requires a GitHub remote; found ${project.forge ?? 'none'}`,
       );
     }
     assertGhReady(project.rootPath);
+  }
+  if (delivery === 'auto_merge') {
+    if (!projectConfig?.auto_merge) {
+      throw new CrewError(
+        'MERGE_POLICY_REQUIRED',
+        'Delivery mode "auto_merge" requires auto_merge.method in the project config',
+      );
+    }
+    if (!projectConfig.ci) {
+      throw new CrewError(
+        'CI_REQUIRED_FOR_AUTO_MERGE',
+        'Delivery mode "auto_merge" requires a ci configuration',
+      );
+    }
   }
 
   if (options.delivery && options.delivery !== task.deliveryMode) {
@@ -143,6 +168,7 @@ export async function runPipeline(
   let developerReportPath: string | undefined;
   let verifications: VerificationResult[] = [];
   let ci: CiResult | null = null;
+  let merge: MergeResult | null = null;
 
   try {
     if (task.state === 'review') {
@@ -156,6 +182,7 @@ export async function runPipeline(
         testerReport: store.getLatestReportByRole(task.id, 'tester'),
         verifications: store.listVerifications(task.id),
         ci: null,
+        merge: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -171,6 +198,7 @@ export async function runPipeline(
         testerReport: store.getLatestReportByRole(task.id, 'tester'),
         verifications: store.listVerifications(task.id),
         ci: null,
+        merge: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -202,6 +230,7 @@ export async function runPipeline(
         testerReport: null,
         verifications,
         ci: null,
+        merge: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -223,6 +252,7 @@ export async function runPipeline(
         testerReport: null,
         verifications,
         ci: null,
+        merge: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -265,6 +295,7 @@ export async function runPipeline(
           testerReport: null,
           verifications,
           ci: null,
+          merge: null,
           commitSha: task.commitSha,
           prUrl: task.prUrl,
         };
@@ -299,6 +330,7 @@ export async function runPipeline(
         testerReport,
         verifications,
         ci: null,
+        merge: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -325,6 +357,7 @@ export async function runPipeline(
         testerReport,
         verifications,
         ci: null,
+        merge: null,
         commitSha: task.commitSha,
         prUrl: task.prUrl,
       };
@@ -336,7 +369,7 @@ export async function runPipeline(
     );
     task = store.recordCommit(task.id, commit.sha);
 
-    if (delivery === 'pr') {
+    if (requiresGithubDelivery(delivery)) {
       const branch = task.branch ?? currentBranch(project.rootPath);
       pushBranch(project.rootPath, branch);
       const pullRequest = createPullRequest({
@@ -371,10 +404,73 @@ export async function runPipeline(
             testerReport,
             verifications,
             ci,
+            merge: null,
             commitSha: task.commitSha,
             prUrl: task.prUrl,
           };
         }
+      }
+
+      if (delivery === 'auto_merge') {
+        task = store.requestReview(task.id);
+        const policy = projectConfig?.auto_merge;
+        if (!policy) {
+          throw new CrewError(
+            'MERGE_POLICY_REQUIRED',
+            'Delivery mode "auto_merge" requires a merge policy',
+          );
+        }
+        const method = policy.method;
+        const deleteBranch = policy.delete_branch ?? false;
+        try {
+          mergePullRequest({
+            cwd: project.rootPath,
+            url: pullRequest.url,
+            method,
+            deleteBranch,
+          });
+          merge = {
+            state: 'merged',
+            method,
+            actor: 'crew',
+            reason: 'policy satisfied: verification, tester and CI passed',
+            url: pullRequest.url,
+            deleteBranch,
+          };
+        } catch (error) {
+          let prState = 'UNKNOWN';
+          try {
+            prState = viewPullRequest(project.rootPath, pullRequest.url).state;
+          } catch {
+            // Keep UNKNOWN when the PR state cannot be read after a merge failure.
+          }
+          merge = {
+            state: 'failed',
+            method,
+            actor: 'crew',
+            reason: `${errorMessage(error)} (PR ${prState})`,
+            url: pullRequest.url,
+            deleteBranch,
+          };
+        }
+        task = store.recordMergeResult(task.id, merge);
+        if (merge.state === 'merged') {
+          task = store.acceptTask(task.id);
+        }
+        return {
+          task,
+          outcome: outcomeFor(task),
+          stage: task.stage,
+          runs: store.listRuns(task.id),
+          report: tester.report,
+          developerReport,
+          testerReport,
+          verifications,
+          ci,
+          merge,
+          commitSha: task.commitSha,
+          prUrl: task.prUrl,
+        };
       }
     }
 
@@ -389,6 +485,7 @@ export async function runPipeline(
       testerReport,
       verifications,
       ci,
+      merge,
       commitSha: task.commitSha,
       prUrl: task.prUrl,
     };
@@ -409,6 +506,7 @@ export async function runPipeline(
       testerReport,
       verifications: store.listVerifications(task.id),
       ci,
+      merge,
       commitSha: store.getTaskOrThrow(task.id).commitSha,
       prUrl: store.getTaskOrThrow(task.id).prUrl,
       error: message,

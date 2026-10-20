@@ -158,6 +158,20 @@ function renderTaskDetail(detail: ReturnType<Store['getTaskDetail']>): void {
       typeof ci.metadata?.summary === 'string' ? ci.metadata.summary : ci.ref;
     console.log(`CI:        ${state} - ${summary}`);
   }
+  const merge = detail.artifacts
+    .filter((artifact) => artifact.kind === 'merge')
+    .at(-1);
+  if (merge) {
+    const state =
+      typeof merge.metadata?.state === 'string' ? merge.metadata.state : 'unknown';
+    const method =
+      typeof merge.metadata?.method === 'string' ? merge.metadata.method : 'unknown';
+    const actor =
+      typeof merge.metadata?.actor === 'string' ? merge.metadata.actor : 'unknown';
+    const reason =
+      typeof merge.metadata?.reason === 'string' ? merge.metadata.reason : merge.ref;
+    console.log(`Merge:     ${state} (${method} by ${actor}) - ${reason}`);
+  }
   console.log(`Delivery:  ${task.deliveryMode}`);
   console.log(`Method:    ${task.methodology}`);
   console.log(`Created:   ${task.createdAt}`);
@@ -579,6 +593,11 @@ function buildProgram(): Command {
           if (result.ci) {
             console.log(`CI: ${result.ci.state} - ${result.ci.summary}`);
           }
+          if (result.merge) {
+            console.log(
+              `Merge: ${result.merge.state} (${result.merge.method} by ${result.merge.actor}) - ${result.merge.reason}`,
+            );
+          }
           if (result.error) {
             console.log(`Error: ${result.error}`);
           }
@@ -596,7 +615,10 @@ function buildProgram(): Command {
     .action(async (id: string, options: { force?: boolean }) => {
       const updated = await withStore((store) => {
         const task = store.getTaskOrThrow(id);
-        if (task.deliveryMode === 'pr' && !options.force) {
+        if (
+          (task.deliveryMode === 'pr' || task.deliveryMode === 'auto_merge') &&
+          !options.force
+        ) {
           const project = store.getProject(task.projectId);
           if (!project) {
             throw new CrewError('PROJECT_NOT_FOUND', `Project not found for task ${id}`);

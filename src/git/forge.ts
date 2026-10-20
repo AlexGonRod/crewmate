@@ -1,11 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import { CrewError } from '../core/errors';
+import type { MergeMethod } from '../core/types';
 
 export interface PullRequestInfo {
   url: string;
   state: string;
   merged: boolean;
   number?: number;
+  mergeable?: string;
+  draft?: boolean;
 }
 
 function gh(args: string[], cwd: string): { status: number; stdout: string; stderr: string } {
@@ -60,6 +63,9 @@ function parsePullRequest(raw: string): PullRequestInfo | null {
         ? true
         : item.state === 'MERGED',
     number: typeof item.number === 'number' ? item.number : undefined,
+    mergeable:
+      typeof item.mergeable === 'string' ? item.mergeable : undefined,
+    draft: item.isDraft === true,
   };
 }
 
@@ -129,7 +135,13 @@ export function createPullRequest(options: {
 
 export function viewPullRequest(cwd: string, url: string): PullRequestInfo {
   const result = gh(
-    ['pr', 'view', url, '--json', 'url,state,mergedAt,number'],
+    [
+      'pr',
+      'view',
+      url,
+      '--json',
+      'url,state,mergedAt,number,mergeable,isDraft',
+    ],
     cwd,
   );
   if (result.status !== 0) {
@@ -143,4 +155,67 @@ export function viewPullRequest(cwd: string, url: string): PullRequestInfo {
     throw new CrewError('GH_PR_VIEW_FAILED', `Could not parse gh pr view output: ${result.stdout}`);
   }
   return parsed;
+}
+
+export function mergePullRequest(options: {
+  cwd: string;
+  url: string;
+  method: MergeMethod;
+  deleteBranch?: boolean;
+}): PullRequestInfo {
+  const before = viewPullRequest(options.cwd, options.url);
+  if (before.merged) {
+    return before;
+  }
+  if (before.state !== 'OPEN') {
+    throw new CrewError(
+      'PR_NOT_OPEN',
+      `Pull request ${options.url} is ${before.state}`,
+    );
+  }
+  if (before.draft) {
+    throw new CrewError(
+      'PR_IS_DRAFT',
+      `Pull request ${options.url} is still a draft`,
+    );
+  }
+  if (
+    before.mergeable &&
+    before.mergeable !== 'MERGEABLE' &&
+    before.mergeable !== 'UNKNOWN'
+  ) {
+    throw new CrewError(
+      'PR_NOT_MERGEABLE',
+      `Pull request ${options.url} is not mergeable (${before.mergeable})`,
+    );
+  }
+
+  const args = ['pr', 'merge', options.url, `--${options.method}`];
+  if (options.deleteBranch) {
+    args.push('--delete-branch');
+  }
+  const result = gh(args, options.cwd);
+  let after: PullRequestInfo;
+  try {
+    after = viewPullRequest(options.cwd, options.url);
+  } catch (error) {
+    if (result.status !== 0) {
+      throw new CrewError(
+        'PR_MERGE_FAILED',
+        `gh pr merge failed: ${
+          result.stderr || result.stdout || `gh exited with ${result.status}`
+        }`,
+      );
+    }
+    throw error;
+  }
+  if (!after.merged) {
+    throw new CrewError(
+      'PR_MERGE_FAILED',
+      `gh pr merge did not merge the pull request: ${
+        result.stderr || result.stdout || `gh exited with ${result.status}`
+      }`,
+    );
+  }
+  return after;
 }

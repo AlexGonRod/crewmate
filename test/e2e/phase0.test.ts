@@ -605,7 +605,7 @@ describe('phase 0 walking skeleton', () => {
       '--methodology',
       'free',
       '--delivery',
-      'auto_merge',
+      'scout',
     ]);
     const result = runTask(id, 'success');
     expect(result.status).toBe(1);

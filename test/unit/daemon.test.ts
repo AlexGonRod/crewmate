@@ -102,6 +102,7 @@ const successfulExecutor: DaemonExecutor = async (store, _context, options) => {
     testerReport: null,
     verifications: [],
     ci: null,
+    merge: null,
     commitSha: task.commitSha,
     prUrl: task.prUrl,
   };

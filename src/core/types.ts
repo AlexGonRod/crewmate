@@ -59,6 +59,19 @@ export interface CiResult {
   error?: string;
 }
 
+export type MergeMethod = 'merge' | 'squash' | 'rebase';
+
+export type MergeState = 'merged' | 'failed';
+
+export interface MergeResult {
+  state: MergeState;
+  method: MergeMethod;
+  actor: string;
+  reason: string;
+  url: string;
+  deleteBranch: boolean;
+}
+
 export interface VerificationResult {
   id: string;
   taskId: string;

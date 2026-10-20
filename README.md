@@ -34,8 +34,8 @@ Fases 0 y 1 completadas; Fase 2 en curso:
 - Gate de CI de GitHub Actions antes de pasar a `review`, con resultado durable.
 - Rechazo del tester o de la verificación con feedback y límite configurable de
   iteraciones.
-- Entrega `local` o `pr` (GitHub mediante `gh`); `task accept` exige PR mergeado
-  salvo `--force`.
+- Entrega `local`, `pr` o `auto_merge` (GitHub mediante `gh`); `task accept`
+  exige PR mergeado salvo `--force`.
 - Harness `opencode` real, además del agente falso.
 - Detección de binarios, `--harness auto` y `crew harness list`.
 - Cola de tareas y daemon con lease único, heartbeat y parada ordenada.
@@ -186,7 +186,8 @@ verify:
 verify_timeout_seconds: 600
 ```
 
-El gate de CI se activa por proyecto y requiere `delivery: pr`:
+El gate de CI se activa por proyecto y requiere un modo con PR (`pr` o
+`auto_merge`):
 
 ```yaml
 ci:
@@ -202,6 +203,24 @@ exige el último resultado `passed` cuando el proyecto tiene `ci`; `--force`
 omite esa comprobación. Si no hay `ci`, los comandos `verify` siguen siendo el
 gate principal. Decisión registrada en el
 [ADR 0010](docs/adr/0010-ci-gate.md).
+
+El auto-merge es opt-in y exige una política explícita y CI configurado:
+
+```yaml
+delivery: auto_merge
+auto_merge:
+  method: squash
+  delete_branch: false
+```
+
+`method` es obligatorio (`merge`, `squash` o `rebase`) y `delete_branch` es
+opcional. Sin política la tarea falla con `MERGE_POLICY_REQUIRED`; sin `ci`,
+con `CI_REQUIRED_FOR_AUTO_MERGE`. El merge solo se intenta con verificación y
+tester aprobados, CI verde y PR mergeable; GitHub sigue aplicando la protección
+de rama. El actor `crew` registra el resultado en el artefacto `merge` y el
+evento `merge.completed`. Si el merge falla, la tarea queda en `review` para
+resolverlo manualmente. Decisión registrada en el
+[ADR 0011](docs/adr/0011-auto-merge.md).
 
 ## Pipeline de desarrollo
 
@@ -219,6 +238,9 @@ gate principal. Decisión registrada en el
    - `pr`: se hace push y se abre un PR en GitHub con `gh`. Si el proyecto
      declara `ci`, se espera a que los checks terminen; un fallo o timeout falla
      la tarea antes de `review`.
+   - `auto_merge`: como `pr`, y después intenta el merge con la política del
+     proyecto. Si tiene éxito, la tarea pasa a `done`; si falla, queda en
+     `review` con el motivo registrado.
 6. **Review**: la tarea queda en `review`. `task reject` reencola al developer con
    el feedback; `task accept` la marca `done`.
 

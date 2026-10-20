@@ -95,14 +95,19 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
     detail: context.paths.dataDir,
   });
 
+  const needsGithubDelivery = (mode: string): boolean =>
+    mode === 'pr' || mode === 'auto_merge';
   const projects = store.listProjects();
   let needsGitHub =
-    context.config.delivery === 'pr' ||
-    store.listTasks().some((task) => task.deliveryMode === 'pr');
+    needsGithubDelivery(context.config.delivery) ||
+    store.listTasks().some((task) => needsGithubDelivery(task.deliveryMode));
   for (const project of projects) {
     try {
       const config = readProjectConfig(project.rootPath);
-      if (config?.delivery === 'pr' || config?.ci) {
+      if (
+        (config?.delivery && needsGithubDelivery(config.delivery)) ||
+        config?.ci
+      ) {
         needsGitHub = true;
       }
       if (

@@ -2,7 +2,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parse } from 'yaml';
 import { CrewError } from '../core/errors';
-import type { CiProvider, DeliveryMode, Methodology } from '../core/types';
+import type {
+  CiProvider,
+  DeliveryMode,
+  MergeMethod,
+  Methodology,
+} from '../core/types';
 import { parseMethodology } from '../spec/spec';
 import { ensurePaths, resolvePaths, type CrewPaths } from './paths';
 
@@ -145,6 +150,11 @@ export interface ProjectCiConfig {
   interval_seconds?: number;
 }
 
+export interface ProjectAutoMergeConfig {
+  method: MergeMethod;
+  delete_branch?: boolean;
+}
+
 export interface ProjectConfig {
   schema?: string;
   name?: string;
@@ -153,6 +163,7 @@ export interface ProjectConfig {
   verify?: string[];
   verify_timeout_seconds?: number;
   ci?: ProjectCiConfig;
+  auto_merge?: ProjectAutoMergeConfig;
   delivery?: DeliveryMode;
   review?: {
     max_iterations?: number;
@@ -230,6 +241,37 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
             `ci.${key} must be a positive number in ${configPath}`,
           );
         }
+      }
+    }
+    if (parsed.auto_merge !== undefined) {
+      if (
+        !parsed.auto_merge ||
+        typeof parsed.auto_merge !== 'object' ||
+        Array.isArray(parsed.auto_merge)
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `auto_merge must be an object in ${configPath}`,
+        );
+      }
+      if (
+        parsed.auto_merge.method !== 'merge' &&
+        parsed.auto_merge.method !== 'squash' &&
+        parsed.auto_merge.method !== 'rebase'
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `auto_merge.method must be "merge", "squash", or "rebase" in ${configPath}`,
+        );
+      }
+      if (
+        parsed.auto_merge.delete_branch !== undefined &&
+        typeof parsed.auto_merge.delete_branch !== 'boolean'
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `auto_merge.delete_branch must be a boolean in ${configPath}`,
+        );
       }
     }
     if (parsed.delivery !== undefined) {

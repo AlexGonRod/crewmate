@@ -17,6 +17,7 @@ import type {
   CiResult,
   DeliveryMode,
   EventRecord,
+  MergeResult,
   Message,
   Methodology,
   PipelineStage,
@@ -1506,6 +1507,40 @@ export class Store {
           summary: result.summary,
           url: result.url,
           provider: result.provider,
+        },
+      });
+      return this.getTaskOrThrow(task.id);
+    });
+  }
+
+  recordMergeResult(taskId: string, result: MergeResult): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      this.db
+        .prepare(
+          `INSERT INTO artifacts (id, task_id, run_id, kind, ref, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          newId('art'),
+          task.id,
+          null,
+          'merge',
+          result.url,
+          JSON.stringify(result),
+          nowIso(),
+        );
+      this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'merge.completed',
+        payload: {
+          state: result.state,
+          method: result.method,
+          actor: result.actor,
+          reason: result.reason,
+          url: result.url,
         },
       });
       return this.getTaskOrThrow(task.id);

@@ -108,6 +108,8 @@ if (args[0] === 'pr' && args[1] === 'create') {
     url: 'https://github.com/acme/demo/pull/1',
     state: 'OPEN',
     mergedAt: null,
+    mergeable: process.env.GH_MERGEABLE || 'MERGEABLE',
+    isDraft: false,
     number: 1,
     head: args[args.indexOf('--head') + 1],
     base: args[args.indexOf('--base') + 1],
@@ -120,6 +122,19 @@ if (args[0] === 'pr' && args[1] === 'view') {
   const item = state();
   if (!item) process.exit(1);
   process.stdout.write(JSON.stringify(item));
+  process.exit(0);
+}
+if (args[0] === 'pr' && args[1] === 'merge') {
+  const item = state();
+  if (!item) process.exit(1);
+  if (process.env.GH_MERGE_STATE === 'fail') {
+    process.stderr.write('merge conflict\\n');
+    process.exit(1);
+  }
+  item.state = 'MERGED';
+  item.mergedAt = '2026-01-01T00:00:00Z';
+  writeFileSync(statePath, JSON.stringify(item));
+  process.stdout.write(item.url + '\\n');
   process.exit(0);
 }
 if (args[0] === 'api' && args[1].includes('/check-runs')) {
@@ -163,6 +178,8 @@ process.exit(1);
           '  provider: github_actions',
           '  timeout_seconds: 10',
           '  interval_seconds: 1',
+          'auto_merge:',
+          '  method: squash',
         ].join('\n'),
       ),
     );
@@ -288,6 +305,240 @@ process.exit(1);
       ).toBe(true);
     } finally {
       delete env.GH_CI_STATE;
+    }
+  });
+
+  it('auto-merges when the policy, verification, tester, and CI all pass', () => {
+    const created = cli([
+      '--json',
+      'task',
+      'create',
+      '--project',
+      'demo',
+      '--title',
+      'Auto-merge task',
+      '--brief',
+      'Create an auto-merged marker file',
+      '--methodology',
+      'free',
+      '--delivery',
+      'auto_merge',
+    ]);
+    expect(created.status, created.stderr).toBe(0);
+    const id = created.json.task.id as string;
+
+    const run = cli([
+      '--json',
+      'task',
+      'run',
+      id,
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=success',
+      '--timeout',
+      '10',
+    ]);
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.json.task.state).toBe('done');
+    expect(run.json.ci.state).toBe('passed');
+    expect(run.json.merge.state).toBe('merged');
+    expect(run.json.merge.method).toBe('squash');
+    expect(run.json.merge.actor).toBe('crew');
+
+    const pullRequest = JSON.parse(readFileSync(ghState, 'utf8')) as Record<string, unknown>;
+    expect(pullRequest.state).toBe('MERGED');
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    expect(
+      shown.json.artifacts.some(
+        (artifact: { kind: string }) => artifact.kind === 'merge',
+      ),
+    ).toBe(true);
+    expect(
+      shown.json.events.some(
+        (event: { type: string }) => event.type === 'merge.completed',
+      ),
+    ).toBe(true);
+    expect(
+      shown.json.events.some(
+        (event: { type: string }) => event.type === 'task.accepted',
+      ),
+    ).toBe(true);
+  });
+
+  it('leaves the task in review when the automatic merge fails', () => {
+    env.GH_MERGE_STATE = 'fail';
+    try {
+      const created = cli([
+        '--json',
+        'task',
+        'create',
+        '--project',
+        'demo',
+        '--title',
+        'Auto-merge fallback task',
+        '--brief',
+        'Create a fallback marker file',
+        '--methodology',
+        'free',
+        '--delivery',
+        'auto_merge',
+      ]);
+      expect(created.status, created.stderr).toBe(0);
+      const id = created.json.task.id as string;
+
+      const run = cli([
+        '--json',
+        'task',
+        'run',
+        id,
+        '--harness',
+        'fake',
+        '--env',
+        'CREW_FAKE_SCENARIO=success',
+        '--timeout',
+        '10',
+      ]);
+      expect(run.status, run.stderr).toBe(0);
+      expect(run.json.task.state).toBe('review');
+      expect(run.json.merge.state).toBe('failed');
+      expect(run.json.merge.reason).toContain('merge conflict');
+      expect(run.json.merge.reason).toContain('PR OPEN');
+
+      const premature = cli(['--json', 'task', 'accept', id]);
+      expect(premature.status).toBe(1);
+      expect(premature.stderr).toContain('PR_NOT_MERGED');
+
+      const pullRequest = JSON.parse(readFileSync(ghState, 'utf8')) as Record<string, unknown>;
+      writeFileSync(
+        ghState,
+        JSON.stringify({ ...pullRequest, state: 'MERGED', mergedAt: '2026-01-01T00:00:00Z' }),
+      );
+      const accepted = cli(['--json', 'task', 'accept', id]);
+      expect(accepted.status, accepted.stderr).toBe(0);
+      expect(accepted.json.task.state).toBe('done');
+    } finally {
+      delete env.GH_MERGE_STATE;
+    }
+  });
+
+  it('does not merge when the pull request is not mergeable', () => {
+    env.GH_MERGEABLE = 'DIRTY';
+    try {
+      const created = cli([
+        '--json',
+        'task',
+        'create',
+        '--project',
+        'demo',
+        '--title',
+        'Conflicting auto-merge task',
+        '--brief',
+        'Create a conflicting marker file',
+        '--methodology',
+        'free',
+        '--delivery',
+        'auto_merge',
+      ]);
+      expect(created.status, created.stderr).toBe(0);
+      const run = cli([
+        '--json',
+        'task',
+        'run',
+        created.json.task.id as string,
+        '--harness',
+        'fake',
+        '--env',
+        'CREW_FAKE_SCENARIO=success',
+        '--timeout',
+        '10',
+      ]);
+      expect(run.status, run.stderr).toBe(0);
+      expect(run.json.task.state).toBe('review');
+      expect(run.json.merge.state).toBe('failed');
+      expect(run.json.merge.reason).toContain('not mergeable (DIRTY)');
+      expect(
+        (JSON.parse(readFileSync(ghState, 'utf8')) as Record<string, unknown>).state,
+      ).toBe('OPEN');
+    } finally {
+      delete env.GH_MERGEABLE;
+    }
+  });
+
+  it('requires an explicit merge policy and CI config for auto-merge', () => {
+    const configPath = path.join(repo, '.crew', 'config.yaml');
+    const originalConfig = readFileSync(configPath, 'utf8');
+    try {
+      writeFileSync(
+        configPath,
+        originalConfig.replace('auto_merge:\n  method: squash\n', ''),
+      );
+      const created = cli([
+        '--json',
+        'task',
+        'create',
+        '--project',
+        'demo',
+        '--title',
+        'Missing merge policy',
+        '--brief',
+        'Should not start',
+        '--methodology',
+        'free',
+        '--delivery',
+        'auto_merge',
+      ]);
+      expect(created.status, created.stderr).toBe(0);
+      const run = cli([
+        '--json',
+        'task',
+        'run',
+        created.json.task.id as string,
+        '--harness',
+        'fake',
+      ]);
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('MERGE_POLICY_REQUIRED');
+      expect(cli(['--json', 'task', 'show', created.json.task.id]).json.task.state).toBe(
+        'draft',
+      );
+
+      writeFileSync(
+        configPath,
+        originalConfig.replace(
+          'ci:\n  provider: github_actions\n  timeout_seconds: 10\n  interval_seconds: 1\n',
+          '',
+        ),
+      );
+      const noCi = cli([
+        '--json',
+        'task',
+        'create',
+        '--project',
+        'demo',
+        '--title',
+        'Missing CI',
+        '--brief',
+        'Should not start either',
+        '--methodology',
+        'free',
+        '--delivery',
+        'auto_merge',
+      ]);
+      expect(noCi.status, noCi.stderr).toBe(0);
+      const noCiRun = cli([
+        '--json',
+        'task',
+        'run',
+        noCi.json.task.id as string,
+        '--harness',
+        'fake',
+      ]);
+      expect(noCiRun.status).toBe(1);
+      expect(noCiRun.stderr).toContain('CI_REQUIRED_FOR_AUTO_MERGE');
+    } finally {
+      writeFileSync(configPath, originalConfig);
     }
   });
 

@@ -90,6 +90,37 @@ describe('config', () => {
     expect(() => readProjectConfig(dir)).toThrow('ci.timeout_seconds');
   });
 
+  it('reads and validates project auto-merge policy', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
+    tempDirs.push(dir);
+    mkdirSync(path.join(dir, '.crew'), { recursive: true });
+    const configPath = path.join(dir, '.crew', 'config.yaml');
+
+    writeFileSync(
+      configPath,
+      [
+        'delivery: auto_merge',
+        'auto_merge:',
+        '  method: squash',
+        '  delete_branch: true',
+        '',
+      ].join('\n'),
+    );
+    expect(readProjectConfig(dir)?.auto_merge).toEqual({
+      method: 'squash',
+      delete_branch: true,
+    });
+
+    writeFileSync(configPath, 'auto_merge:\n  method: fast-forward\n');
+    expect(() => readProjectConfig(dir)).toThrow('auto_merge.method');
+
+    writeFileSync(
+      configPath,
+      'auto_merge:\n  method: merge\n  delete_branch: yes\n',
+    );
+    expect(() => readProjectConfig(dir)).toThrow('auto_merge.delete_branch');
+  });
+
   it('reads agents, review, and delivery from the global config', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
     tempDirs.push(dir);

@@ -1,5 +1,8 @@
 # ADR 0007: Pipeline developer → tester y revisión humana
 
+> Actualizado por ADR 0011: `auto_merge` ya está implementado con política
+> explícita; `scout` sigue fuera de alcance.
+
 ## Contexto
 
 La Fase 1 necesita separar la implementación de la verificación. Un único agente
@@ -27,11 +30,11 @@ directamente en `main`.
   developer lo incluye. Tras `review.max_iterations` rechazos la tarea pasa a
   `failed`; no hay reencolado automático.
 - **Entrega**: `local` deja la rama con el commit. `pr` hace push y abre un PR
-  en GitHub mediante `gh`; solo se soporta GitHub. `auto_merge` y `scout` fallan
-  con `DELIVERY_UNSUPPORTED`.
+  en GitHub mediante `gh`; solo se soporta GitHub. `scout` falla con
+  `DELIVERY_UNSUPPORTED`; `auto_merge` se rige por el ADR 0011.
 - **Aceptación humana**: `task accept` solo actúa sobre `review`. Con
-  `delivery=pr` consulta `gh pr view` y exige `MERGED`, salvo `--force`. Nunca
-  mergea por sí mismo; el merge es una decisión humana.
+  `delivery=pr` consulta `gh pr view` y exige `MERGED`, salvo `--force`. En modo
+  `pr` el motor no mergea por sí mismo; `auto_merge` sigue el ADR 0011.
 - **Rechazo humano**: `task reject` usa el mismo mecanismo que el tester, con el
   mismo límite de iteraciones.
 
