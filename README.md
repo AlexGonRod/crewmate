@@ -1,11 +1,16 @@
 # crew
 
-Orquestador de múltiples agentes agnóstico al lenguaje. Esta entrega cubre la
-**Fase 0** y la **Fase 1**: metodología de desarrollo declarativa
-(`free`, `spec`, `tdd`), pipeline developer → tester → git/PR, ejecución con
-harness reales (`opencode`) con detección automática, y un daemon con lease que
-procesa la cola y reconcilia runs perdidos. El núcleo sigue siendo pequeño y
-verificado.
+Orquestador de múltiples agentes agnóstico al lenguaje. Las **Fases 0 y 1** están
+completadas y la **Fase 2** está en curso: metodología de desarrollo declarativa
+(`free`, `spec`, `tdd`), pipeline developer → verificación → tester → git/PR,
+ejecución con harness reales (`opencode`) con detección automática, y un daemon
+con lease que procesa la cola y reconcilia runs perdidos. El núcleo sigue siendo
+pequeño y verificado.
+
+El objetivo a medio plazo es una capa **capitán** conversacional encima de este
+motor: hablar con un agente que entiende la petición, clona el proyecto, lanza
+workers aislados y entrega PRs listos para revisar. El detalle está en el
+[roadmap](docs/roadmap.md).
 
 El diseño combina dos ideas:
 
@@ -16,7 +21,7 @@ El diseño combina dos ideas:
 
 ## Estado
 
-Fase 0 completada y pipeline de Fase 1 implementado:
+Fases 0 y 1 completadas; Fase 2 en curso:
 
 - Proyectos registrados y tareas con estado durable en SQLite.
 - Worktree aislado por tarea.
@@ -38,9 +43,24 @@ Fase 0 completada y pipeline de Fase 1 implementado:
 - CLI con salida humana y `--json`.
 - Event log append-only y `doctor`.
 - Tests unitarios y e2e.
+- Paquete npm instalable con binario `crew`.
 
-Fuera de alcance todavía: PTY, provisioning, merge automático, memoria, UI web,
-hosts remotos y daemon como servicio del sistema (systemd/launchd).
+El resto del alcance y las fases pendientes están en el
+[roadmap](docs/roadmap.md).
+
+## Roadmap
+
+| Fase | Estado | Objetivo |
+|---|---|---|
+| 0. Núcleo durable | Completada | Estado, worktrees, metodologías y recuperación |
+| 1. Pipeline y entrega | Completada | Developer, tester, verificación, commit/PR y daemon |
+| 2. Motor autónomo confiable | En curso | CI, auto-merge, concurrencia y resumen de riesgo |
+| 3. Capitán conversacional | Pendiente | Chat, intake, planificación, supervisión y merge |
+| 4. Runtime visible y escala | Pendiente | Sesiones visibles, remotos, memoria y scout |
+
+Detalle, criterios de salida y dependencias: [docs/roadmap.md](docs/roadmap.md).
+La separación entre motor y capitán está registrada en el
+[ADR 0009](docs/adr/0009-engine-and-captain-layer.md).
 
 ## Requisitos
 
@@ -302,6 +322,9 @@ Decisiones clave:
   borra trabajo sucio sin `--force`.
 - **Un daemon por base de datos** con lease y heartbeat; la recuperación es
   explícita (`daemon reconcile` + `task retry`), nunca un reencolado silencioso.
+- **Motor y capitán separados**: el motor determinista ejecuta operaciones y
+  guarda evidencia; la futura capa capitán solo interpreta intención y llama al
+  motor (ADR 0009).
 
 ## Contratos
 
