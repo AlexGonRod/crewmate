@@ -1,7 +1,6 @@
 {
-  "name": "crew",
+  "name": "@alexgonrod/crewmate",
   "version": "0.1.0",
-  "private": true,
   "description": "Language-agnostic multi-agent orchestrator",
   "type": "module",
   "license": "MIT",
@@ -14,7 +13,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:e2e": "vitest run test/e2e",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build": "node scripts/build.mjs",
+    "prepack": "pnpm build",
+    "prepublishOnly": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
     "ajv": "^8.17.1",
@@ -25,10 +27,40 @@
   "devDependencies": {
     "@eslint/js": "^9.30.0",
     "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
     "eslint": "^9.30.0",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "typescript-eslint": "^8.35.0",
     "vitest": "^3.2.4"
+  },
+  "bin": {
+    "crew": "dist/crew.js"
+  },
+  "files": [
+    "dist",
+    "contracts",
+    "test/fake-agent",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlexGonRod/crewmate.git"
+  },
+  "homepage": "https://github.com/AlexGonRod/crewmate#readme",
+  "bugs": {
+    "url": "https://github.com/AlexGonRod/crewmate/issues"
+  },
+  "keywords": [
+    "agents",
+    "orchestrator",
+    "cli",
+    "git",
+    "worktree",
+    "sqlite"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

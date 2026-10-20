@@ -1,7 +1,14 @@
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { HarnessAdapter, HarnessManifest, LaunchSpec } from './types';
 
-const fakeAgentUrl = new URL('../../../test/fake-agent/index.mjs', import.meta.url);
+const fakeAgentUrl = [
+  new URL('../test/fake-agent/index.mjs', import.meta.url),
+  new URL('../../../test/fake-agent/index.mjs', import.meta.url),
+].find((candidate) => existsSync(candidate)) ?? new URL(
+  '../../../test/fake-agent/index.mjs',
+  import.meta.url,
+);
 
 export function fakeAgentPath(): string {
   return fileURLToPath(fakeAgentUrl);

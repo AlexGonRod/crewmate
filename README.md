@@ -45,15 +45,26 @@ hosts remotos y daemon como servicio del sistema (systemd/launchd).
 ## Requisitos
 
 - Node.js >= 24 (probado con Node 26, que incluye `node:sqlite`).
-- pnpm.
 - git.
 - `gh` autenticado solo si se usa `--delivery pr`.
+- pnpm solo para desarrollo.
 - tmux (opcional, para fases posteriores).
 
 ## Instalación
 
+Global desde npm:
+
+```sh
+npm install -g @alexgonrod/crewmate
+crew version
+```
+
+Desde el repositorio:
+
 ```sh
 pnpm install
+pnpm build
+node dist/crew.js version
 ```
 
 ## Uso rápido
@@ -61,18 +72,18 @@ pnpm install
 Dentro de un repositorio git:
 
 ```sh
-pnpm crew init
-pnpm crew --json project add . --name demo
-pnpm crew --json task create \
+crew init
+crew --json project add . --name demo
+crew --json task create \
   --project demo \
   --title "Mi primera tarea" \
   --brief "Crea un fichero de ejemplo" \
   --acceptance "El fichero existe" \
   --acceptance "El fichero tiene contenido"
-pnpm crew --json task run tsk_... --harness fake --env CREW_FAKE_SCENARIO=spec_success
-pnpm crew --json task show tsk_...
-pnpm crew --json task accept tsk_...
-pnpm crew task clean tsk_... --force
+crew --json task run tsk_... --harness fake --env CREW_FAKE_SCENARIO=spec_success
+crew --json task show tsk_...
+crew --json task accept tsk_...
+crew task clean tsk_... --force
 ```
 
 `--json` es una opción global y debe ir antes del subcomando.
@@ -317,7 +328,11 @@ y `CREW_DB_PATH`, o con `--db`.
 
 ## Desarrollo
 
+`pnpm crew` ejecuta el CLI directamente desde TypeScript.
+
 ```sh
+pnpm crew version
+pnpm build
 pnpm typecheck
 pnpm lint
 pnpm test

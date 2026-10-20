@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, CommanderError } from 'commander';
@@ -1062,7 +1062,19 @@ export async function main(argv = process.argv): Promise<number> {
   }
 }
 
-const entry = process.argv[1] ? path.resolve(process.argv[1]) : '';
+function entryPath(): string {
+  const candidate = process.argv[1];
+  if (!candidate) {
+    return '';
+  }
+  try {
+    return realpathSync(candidate);
+  } catch {
+    return path.resolve(candidate);
+  }
+}
+
+const entry = entryPath();
 if (entry && fileURLToPath(import.meta.url) === entry) {
   main().then((code) => {
     process.exit(code);

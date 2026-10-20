@@ -4,11 +4,12 @@ import { CrewError } from '../core/errors';
 import type { AgentRole, Methodology, ReportPayload } from '../core/types';
 
 function schemaUrl(name: string): URL {
-  const direct = new URL(`../../contracts/${name}`, import.meta.url);
-  if (existsSync(direct)) {
-    return direct;
-  }
-  return new URL(`../../../contracts/${name}`, import.meta.url);
+  const candidates = [
+    new URL(`../contracts/${name}`, import.meta.url),
+    new URL(`../../contracts/${name}`, import.meta.url),
+    new URL(`../../../contracts/${name}`, import.meta.url),
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
 }
 
 function loadSchema(name: string): object {
