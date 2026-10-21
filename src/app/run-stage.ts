@@ -159,6 +159,7 @@ export async function runStage(
       options.verifyCommands ?? projectConfig?.verify ?? [],
     verifications: options.verifications,
     messages: store.listMessages(task.id),
+    memories: store.listMemories(project.id),
   });
   writeFileSync(briefDataPath, brief, 'utf8');
   writeFileSync(briefPath, brief, 'utf8');

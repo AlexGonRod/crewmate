@@ -67,7 +67,7 @@ El resto del alcance y las fases pendientes están en el
 | 1. Pipeline y entrega | Completada | Developer, tester, verificación, commit/PR y daemon |
 | 2. Motor autónomo confiable | Completada | CI, auto-merge, concurrencia, riesgo y reintentos |
 | 3. Capitán conversacional | Completada | Capa capitán, intake, planes, supervisión y merge |
-| 4. Runtime visible y escala | Pendiente | Sesiones visibles, remotos, memoria y scout |
+| 4. Runtime visible y escala | En curso | Sesiones visibles, remotos, memoria y scout |
 
 Detalle, criterios de salida y dependencias: [docs/roadmap.md](docs/roadmap.md).
 La separación entre motor y capitán está registrada en el
@@ -142,6 +142,9 @@ crew task clean tsk_... --force
 | `crew task reject <id> [motivo...] [--reason <texto>]` | Rechaza, guarda feedback y reencola al developer |
 | `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--scheduling <serial\|parallel>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
+| `crew memory add --project <ref> --kind <kind> --title <t> --body <texto>` | Añade una nota durable al proyecto |
+| `crew memory list --project <ref> [--kind <kind>]` | Lista la memoria del proyecto |
+| `crew memory rm <id>` | Elimina una nota de la memoria |
 | `crew progress <id> [--events <n>]` | Informa del avance de una tarea en lenguaje natural y de qué toca ahora |
 | `crew status [--limit <n>]` | Resumen global: lease, conteo por estado, runs activos y tareas recientes con riesgo y CI |
 | `crew plan validate <file>` | Valida un plan y muestra los grupos de ejecución y avisos |
@@ -387,6 +390,27 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## Memoria de proyecto
+
+Notas durables por proyecto (convenciones, decisiones, trampas, glosario) para
+no repetir contexto entre sesiones.
+
+```sh
+crew memory add --project demo --kind convention \
+  --title "Usar pnpm" --body "El proyecto usa pnpm, nunca npm install." --source user
+crew memory list --project demo
+crew memory rm mem_...
+```
+
+- La memoria se incluye en el brief de cada agente: los workers trabajan con
+  las convenciones del proyecto desde el primer prompt.
+- También aparece en `crew --json captain brief`, así que una sesión nueva
+  empieza sabiendo lo que ya se decidió.
+- Cada alta y cada baja queda en el event log (`memory.added`,
+  `memory.removed`).
+
+Ver ADR 0021.
 
 ## Demo de aceptación
 

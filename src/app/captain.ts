@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { readProjectConfig } from '../config/config';
 import { CrewError } from '../core/errors';
-import type { Project, TaskState } from '../core/types';
+import type { Memory, Project, TaskState } from '../core/types';
 import { summarizeDetail } from './summary';
 import type { Store } from '../store/store';
 
@@ -26,6 +26,19 @@ workers de \`crew\` escriben en worktrees aislados y tú solo operas la CLI.
    verificación y veredicto del tester antes de aceptar o mergear.
 5. Valida siempre el resultado de un comando antes de informarlo al usuario.
 6. Sé breve: informa del resultado, del riesgo y de lo que falta, no de los logs.
+
+## Memoria del proyecto
+
+El proyecto guarda notas duraderas (convenciones, decisiones, trampas) para no
+repetir contexto entre sesiones:
+
+\`\`\`sh
+crew --json memory add --project <ref> --kind convention --title "T" --body "..."
+crew --json memory list --project <ref>
+\`\`\`
+
+La memoria se incluye en el brief de cada agente: úsala antes de inventar
+convenciones nuevas y actualízala cuando una decisión cambie.
 
 ## Comandos habituales
 
@@ -130,6 +143,7 @@ export interface CaptainProjectBrief {
 
 export interface CaptainBrief {
   generatedAt: string;
+  memory: Memory[];
   lease: {
     owner: string;
     active: boolean;
@@ -203,8 +217,16 @@ export function buildCaptainBrief(
       reason: ATTENTION_REASONS[task.state] ?? task.state,
     }));
 
+  const projects = store.listProjects();
+  const memory = (
+    options.projectId
+      ? projects.filter((project) => project.id === options.projectId)
+      : projects
+  ).flatMap((project) => store.listMemories(project.id));
+
   return {
     generatedAt: new Date().toISOString(),
+    memory,
     lease: lease
       ? {
           owner: lease.owner,

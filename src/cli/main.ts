@@ -20,7 +20,10 @@ import { isPidAlive, terminateProcessTree } from '../core/process';
 import { redactDeep } from '../core/redact';
 import type {
   DeliveryMode,
+  MemoryKind,
+  MemorySource,
   MergeMethod,
+  Project,
   TaskSpec,
   TaskState,
   TaskSummary,
@@ -1377,6 +1380,108 @@ function buildProgram(): Command {
             ? `Wrote ${result.path}`
             : `Overwrote ${result.path}`,
         );
+      }
+    });
+
+  const memory = program
+    .command('memory')
+    .description('durable project memory: conventions, decisions and pitfalls');
+
+  memory
+    .command('add')
+    .description('add a memory to a project')
+    .requiredOption('--project <ref>', 'project id or name')
+    .requiredOption('--title <title>', 'short title')
+    .requiredOption('--body <text>', 'what to remember')
+    .option('--kind <kind>', 'convention, decision, pitfall, glossary or context', 'context')
+    .option('--source <source>', 'captain, user or agent', 'captain')
+    .option('--task <id>', 'task the memory comes from')
+    .action(
+      async (options: {
+        project: string;
+        title: string;
+        body: string;
+        kind: string;
+        source: string;
+        task?: string;
+      }) => {
+        const result = await withStore((store) => {
+          const project = store.getProject(options.project);
+          if (!project) {
+            throw new CrewError('PROJECT_NOT_FOUND', `Project not found: ${options.project}`);
+          }
+          return store.addMemory({
+            projectId: project.id,
+            kind: options.kind as MemoryKind,
+            title: options.title,
+            body: options.body,
+            source: options.source as MemorySource,
+            taskId: options.task ?? null,
+          });
+        });
+        if (globalOptions().json) {
+          printJson(result);
+        } else {
+          console.log(`Memory ${result.id} (${result.kind}) added to ${result.projectId}`);
+        }
+      },
+    );
+
+  memory
+    .command('list')
+    .description('list the memory of a project')
+    .option('--project <ref>', 'project id or name')
+    .option('--kind <kind>', 'filter by kind')
+    .action(async (options: { project?: string; kind?: string }) => {
+      const result = await withStore((store) => {
+        const projects = options.project
+          ? [store.getProject(options.project)].filter((project): project is Project => project !== null)
+          : store.listProjects();
+        if (projects.length === 0) {
+          throw new CrewError('PROJECT_NOT_FOUND', `Project not found: ${options.project ?? '(any)'}`);
+        }
+        return projects.flatMap((project) =>
+          store.listMemories(project.id, { kind: options.kind as MemoryKind | undefined }),
+        );
+      });
+      if (globalOptions().json) {
+        printJson({ memories: result });
+        return;
+      }
+      if (result.length === 0) {
+        console.log('No memories');
+        return;
+      }
+      printTable(
+        result.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          title: item.title,
+          source: item.source,
+          body: item.body,
+        })),
+        [
+          { key: 'id', label: 'ID' },
+          { key: 'kind', label: 'KIND' },
+          { key: 'title', label: 'TITLE' },
+          { key: 'source', label: 'SOURCE' },
+          { key: 'body', label: 'BODY' },
+        ],
+      );
+    });
+
+  memory
+    .command('rm <id>')
+    .description('remove a memory')
+    .action(async (id: string) => {
+      const removed = await withStore((store) => store.deleteMemory(id));
+      if (!removed) {
+        throw new CrewError('MEMORY_NOT_FOUND', `Memory not found: ${id}`);
+      }
+      if (globalOptions().json) {
+        printJson({ removed: true, id });
+      } else {
+        console.log(`Memory ${id} removed`);
       }
     });
 

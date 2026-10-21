@@ -288,6 +288,74 @@ describe('captain layer', () => {
     }
   });
 
+  it('keeps project memory and gives it to the agents', () => {
+    const added = cli([
+      '--json',
+      'memory',
+      'add',
+      '--project',
+      'demo',
+      '--kind',
+      'convention',
+      '--title',
+      'Use pnpm',
+      '--body',
+      'The project uses pnpm, never npm install.',
+      '--source',
+      'user',
+    ]);
+    expect(added.status, added.stderr).toBe(0);
+    expect(added.json.kind).toBe('convention');
+    expect(added.json.source).toBe('user');
+
+    const listed = cli(['--json', 'memory', 'list', '--project', 'demo']);
+    expect(listed.status, listed.stderr).toBe(0);
+    expect(listed.json.memories).toHaveLength(1);
+    expect(listed.json.memories[0].title).toBe('Use pnpm');
+
+    const brief = cli(['--json', 'captain', 'brief']);
+    expect(brief.status, brief.stderr).toBe(0);
+    expect(brief.json.memory[0].title).toBe('Use pnpm');
+
+    const created = cli([
+      '--json',
+      'task',
+      'create',
+      '--project',
+      'demo',
+      '--title',
+      'Memory aware task',
+      '--brief',
+      'Do the thing',
+      '--methodology',
+      'free',
+    ]);
+    const taskId = created.json.task.id as string;
+    const run = cli([
+      '--json',
+      'task',
+      'run',
+      taskId,
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=success',
+      '--timeout',
+      '20',
+    ]);
+    expect(run.status, run.stderr).toBe(0);
+
+    const worktree = run.json.task.worktreePath as string;
+    const briefText = readFileSync(path.join(worktree, '.crew', 'brief.md'), 'utf8');
+    expect(briefText).toContain('## Project memory');
+    expect(briefText).toContain('Use pnpm');
+    expect(briefText).toContain('never npm install');
+
+    const removed = cli(['--json', 'memory', 'rm', added.json.id]);
+    expect(removed.status, removed.stderr).toBe(0);
+    expect(cli(['--json', 'memory', 'list', '--project', 'demo']).json.memories).toHaveLength(0);
+  });
+
   it('limits the briefing to a single project', () => {
     const brief = cli(['--json', 'captain', 'brief', '--project', 'demo']);
     expect(brief.status, brief.stderr).toBe(0);

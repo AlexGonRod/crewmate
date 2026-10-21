@@ -322,11 +322,13 @@ Referencia: ADR 0020.
 
 ## Fase 4 — Runtime visible y escala
 
-Estado: **pendiente**.
+Estado: **en curso** (4.1 completada).
 
 - Sesiones visibles en tmux/PTY, con capacidad de observar o intervenir.
 - Workers en hosts remotos alcanzables por SSH.
-- Memoria de proyecto para no repetir contexto entre sesiones.
+- Memoria de proyecto para no repetir contexto entre sesiones. **Completada**
+  (ADR 0021): notas durables por proyecto que llegan al brief de cada agente y
+  al briefing del capitán.
 - Tareas de investigación (`scout`) con informes independientes.
 - UI web o servicio del sistema.
 - Soporte de más forges además de GitHub.

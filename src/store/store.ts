@@ -21,6 +21,9 @@ import type {
   DeliveryMode,
   EventRecord,
   MergeResult,
+  Memory,
+  MemoryKind,
+  MemorySource,
   Message,
   Methodology,
   PipelineStage,
@@ -77,6 +80,18 @@ interface TaskRow {
   created_at: string;
   updated_at: string;
   finished_at: string | null;
+}
+
+interface MemoryRow {
+  id: string;
+  project_id: string;
+  kind: string;
+  title: string;
+  body: string;
+  source: string;
+  task_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface RunRow {
@@ -223,6 +238,20 @@ function leaseHolderIsDead(lease: Lease, now = Date.now()): boolean {
     return false;
   }
   return !isPidAlive(pid);
+}
+
+function toMemory(row: MemoryRow): Memory {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    kind: row.kind as Memory['kind'],
+    title: row.title,
+    body: row.body,
+    source: row.source as Memory['source'],
+    taskId: row.task_id ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 function toRun(row: RunRow): Run {
@@ -771,6 +800,112 @@ export class Store {
       throw new CrewError('TASK_NOT_FOUND', `Task not found: ${id}`);
     }
     return task;
+  }
+
+  addMemory(input: {
+    projectId: string;
+    kind: MemoryKind;
+    title: string;
+    body: string;
+    source?: MemorySource;
+    taskId?: string | null;
+  }): Memory {
+    return this.transaction(() => {
+      const project = this.getProject(input.projectId);
+      if (!project) {
+        throw new CrewError('PROJECT_NOT_FOUND', `Project not found: ${input.projectId}`);
+      }
+      const title = input.title.trim();
+      const body = input.body.trim();
+      if (!title) {
+        throw new CrewError('INVALID_MEMORY', 'Memory title must not be empty');
+      }
+      if (!body) {
+        throw new CrewError('INVALID_MEMORY', 'Memory body must not be empty');
+      }
+      const createdAt = nowIso();
+      const memory: Memory = {
+        id: newId('mem'),
+        projectId: project.id,
+        kind: input.kind,
+        title,
+        body,
+        source: input.source ?? 'captain',
+        taskId: input.taskId ?? null,
+        createdAt,
+        updatedAt: createdAt,
+      };
+      this.db
+        .prepare(
+          `INSERT INTO memories
+            (id, project_id, kind, title, body, source, task_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          memory.id,
+          memory.projectId,
+          memory.kind,
+          memory.title,
+          memory.body,
+          memory.source,
+          memory.taskId,
+          memory.createdAt,
+          memory.updatedAt,
+        );
+      this.appendEvent({
+        aggregateType: 'project',
+        aggregateId: project.id,
+        taskId: memory.taskId,
+        type: 'memory.added',
+        payload: {
+          memory_id: memory.id,
+          kind: memory.kind,
+          title: memory.title,
+          source: memory.source,
+        },
+      });
+      return memory;
+    });
+  }
+
+  listMemories(projectId: string, options: { kind?: MemoryKind } = {}): Memory[] {
+    const rows = options.kind
+      ? (this.db
+          .prepare(
+            'SELECT * FROM memories WHERE project_id = ? AND kind = ? ORDER BY created_at ASC',
+          )
+          .all(projectId, options.kind) as unknown as MemoryRow[])
+      : (this.db
+          .prepare(
+            'SELECT * FROM memories WHERE project_id = ? ORDER BY created_at ASC',
+          )
+          .all(projectId) as unknown as MemoryRow[]);
+    return rows.map(toMemory);
+  }
+
+  getMemory(id: string): Memory | null {
+    const row = this.db.prepare('SELECT * FROM memories WHERE id = ?').get(id) as
+      | MemoryRow
+      | undefined;
+    return row ? toMemory(row) : null;
+  }
+
+  deleteMemory(id: string): boolean {
+    return this.transaction(() => {
+      const memory = this.getMemory(id);
+      if (!memory) {
+        return false;
+      }
+      this.db.prepare('DELETE FROM memories WHERE id = ?').run(id);
+      this.appendEvent({
+        aggregateType: 'project',
+        aggregateId: memory.projectId,
+        taskId: memory.taskId,
+        type: 'memory.removed',
+        payload: { memory_id: memory.id, title: memory.title },
+      });
+      return true;
+    });
   }
 
   listTasks(state?: TaskState): Task[] {

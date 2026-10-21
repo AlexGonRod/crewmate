@@ -197,6 +197,27 @@ export interface Task {
   finishedAt: string | null;
 }
 
+export type MemoryKind =
+  | 'convention'
+  | 'decision'
+  | 'pitfall'
+  | 'glossary'
+  | 'context';
+
+export type MemorySource = 'captain' | 'user' | 'agent';
+
+export interface Memory {
+  id: string;
+  projectId: string;
+  kind: MemoryKind;
+  title: string;
+  body: string;
+  source: MemorySource;
+  taskId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Run {
   id: string;
   taskId: string;
