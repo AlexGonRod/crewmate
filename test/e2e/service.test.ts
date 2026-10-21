@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,10 +42,33 @@ describe('crew service', () => {
 
   beforeAll(() => {
     tempRoot = mkdtempSync(path.join(tmpdir(), 'crew-service-'));
+    const bin = path.join(tempRoot, 'bin');
+    const home = path.join(tempRoot, 'home');
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(home, { recursive: true });
+    // Fake launchd and systemd: the real ones would unload the service of
+    // whoever is running the tests.
+    for (const name of ['launchctl', 'systemctl']) {
+      const shim = path.join(bin, name);
+      writeFileSync(
+        shim,
+        `#!/bin/sh
+echo "$@" >> "$CREW_FAKE_SERVICE_LOG"
+exit 0
+`,
+      );
+      chmodSync(shim, 0o755);
+    }
     env = {
       CREW_CONFIG_DIR: path.join(tempRoot, 'config'),
       CREW_DATA_DIR: path.join(tempRoot, 'data'),
       CREW_STATE_DIR: path.join(tempRoot, 'state'),
+      // The unit file lives in the home directory: point it at a temporary
+      // one so the test never touches the real launch agent or systemd unit.
+      HOME: home,
+      XDG_CONFIG_HOME: path.join(home, '.config'),
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+      CREW_FAKE_SERVICE_LOG: path.join(tempRoot, 'service.log'),
     };
   });
 
@@ -106,11 +129,13 @@ describe('crew service', () => {
     expect(result.json.manager).toBe('launchd');
   });
 
-  it('uninstalls a service that was never installed', () => {
+  it('uninstalls the service through the system manager', () => {
     const result = cli(['--json', 'service', 'uninstall', '--manager', 'launchd']);
 
     expect(result.status, result.stderr).toBe(0);
-    expect(result.json.removed).toBe(false);
+    const calls = readFileSync(env.CREW_FAKE_SERVICE_LOG as string, 'utf8');
+    expect(calls).toContain('bootout');
+    expect(calls).toContain('com.crewmate.daemon');
   });
 
   it('shows the log tail even when the service never ran', () => {
