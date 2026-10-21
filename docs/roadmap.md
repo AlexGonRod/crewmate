@@ -328,9 +328,11 @@ Queda fuera del núcleo del roadmap, como mejora posterior, mover también la
 base de datos y las forjas al host remoto.
 
 - Sesiones visibles en tmux/PTY, con capacidad de observar o intervenir.
-  **Completada** (ADR 0023): `task run --session tmux` ejecuta el agente en una
-  sesión `crew-<taskId>-<rol>` observable e intervenible, con la salida
-  capturada en el log del run; `crew sessions list|kill` las gestiona.
+  **Completada** (ADR 0023 y ADR 0031): `task run --session tmux|herdr|auto`
+  ejecuta el agente en una sesión `crew-<taskId>-<rol>` observable e
+  intervenible, con la salida capturada en el log del run; `crew sessions
+  list|kill` las gestiona. Con Herdr la sesión es un workspace y el estado real
+  del agente (`working`, `blocked`, `done`) se muestra en la lista.
 - Workers en hosts remotos alcanzables por SSH. **Completada** (ADR 0026 y
   ADR 0028): un proyecto declara `runner.host` y el agente y la verificación se
   ejecutan por `ssh`. Con `runner.repo_path`, además, el worktree, el commit y
@@ -425,3 +427,4 @@ concurrencia.
 - ADR 0028: workspace remoto con worktree, commit y push en el host remoto.
 - ADR 0029: observabilidad y diagnóstico del workspace remoto.
 - ADR 0030: el editor como superficie de revisión y decisión.
+- ADR 0031: backends de sesión visibles (tmux y Herdr).

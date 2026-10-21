@@ -433,9 +433,15 @@ describe('captain layer', () => {
 
     const sessions = cli(['--json', 'sessions', 'list']);
     expect(sessions.status, sessions.stderr).toBe(0);
-    expect(sessions.json.available).toBe(true);
+    expect(
+      sessions.json.backends.some(
+        (backend: { id: string; available: boolean }) =>
+          backend.id === 'tmux' && backend.available,
+      ),
+    ).toBe(true);
     const entry = sessions.json.sessions.find(
-      (session: { taskId: string }) => session.taskId === taskId,
+      (session: { taskId: string; backend: string }) =>
+        session.taskId === taskId && session.backend === 'tmux',
     );
     expect(entry).toBeTruthy();
     expect(entry.dead).toBe(true);

@@ -395,6 +395,25 @@ La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
 
+## Sesiones visibles
+
+```sh
+crew task run <id> --session herdr   # o tmux, o auto (por defecto)
+crew sessions list                   # sesiones de los dos backends
+crew sessions kill <name>
+```
+
+- El agente se ejecuta en una sesión visible para poder observarlo e
+  intervenir. Hay dos backends: **tmux** y **Herdr**; `auto` usa Herdr si su
+  servidor está corriendo y cae a tmux si no.
+- Con Herdr, cada sesión es un workspace etiquetado `crew-<taskId>-<rol>` cuyo
+  pane ejecuta el agente: aparece en tu TUI con su estado real (`working`,
+  `blocked`, `done`, `idle`) y puedes Attach a él.
+- Con tmux, la sesión es `crew-<taskId>-<rol>` y se abre con
+  `tmux attach -t <nombre>`.
+
+Ver ADR 0023 y ADR 0031.
+
 ## Revisión en el editor
 
 ```sh

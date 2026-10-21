@@ -18,7 +18,11 @@ import {
   uninstallService,
   type ServiceManager,
 } from '../app/service';
-import { killSession, listSessions, tmuxAvailable } from '../app/session';
+import {
+  killSessionByName,
+  listAllSessions,
+  type SessionMode,
+} from '../app/session';
 import { intakeProject } from '../app/intake';
 import { applyPlan, parsePlan, validatePlan } from '../app/plan';
 import { buildProgress, renderProgress } from '../app/progress';
@@ -131,6 +135,23 @@ async function withStore<T>(
   } finally {
     store.close();
   }
+}
+
+export function parseSessionMode(value?: string): SessionMode | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (value === 'tmux' || value === 'herdr' || value === 'auto') {
+    return value;
+  }
+  throw new CrewError(
+    'INVALID_SESSION_MODE',
+    `Unknown session mode: ${value}. Use tmux, herdr or auto.`,
+  );
+}
+
+function sessionStateDir(): string {
+  return path.join(loadContext({ dbPath: globalOptions().db }).paths.dataDir, 'sessions');
 }
 
 function collect(value: string, previous: string[]): string[] {
@@ -735,7 +756,10 @@ function buildProgram(): Command {
     .option('--delivery <mode>', 'override the delivery mode')
     .option('--timeout <seconds>', 'timeout in seconds', Number)
     .option('--env <key=value>', 'extra environment variable', collect, [])
-    .option('--session <mode>', 'run the agent in a visible tmux session')
+    .option(
+      '--session <mode>',
+      'run the agent in a visible session: tmux, herdr or auto',
+    )
     .option('--host <host>', 'run the agent and the verification over ssh on this host')
     .option('--quiet', 'do not stream agent output')
     .action(
@@ -774,7 +798,7 @@ function buildProgram(): Command {
             timeoutSeconds: options.timeout,
             env: parseEnv(options.env),
             quiet: Boolean(options.quiet || json),
-            session: options.session === 'tmux' ? 'tmux' : undefined,
+            session: parseSessionMode(options.session),
             remoteHost: options.host,
           }),
         );
@@ -1515,16 +1539,18 @@ function buildProgram(): Command {
 
   sessions
     .command('list')
-    .description('list the crew tmux sessions and how to attach to them')
+    .description('list the crew sessions (tmux or herdr) and how to attach to them')
     .action(() => {
-      const available = tmuxAvailable();
-      const list = available ? listSessions() : [];
+      const { backends, sessions: list } = listAllSessions({
+        stateDir: sessionStateDir(),
+      });
       if (globalOptions().json) {
-        printJson({ available, sessions: list });
+        printJson({ backends, sessions: list });
         return;
       }
-      if (!available) {
-        console.log('tmux is not available on this machine');
+      const available = backends.filter((backend) => backend.available);
+      if (available.length === 0) {
+        console.log('No session backend is available (tmux or herdr)');
         return;
       }
       if (list.length === 0) {
@@ -1534,12 +1560,16 @@ function buildProgram(): Command {
       printTable(
         list.map((session) => ({
           name: session.name,
+          backend: session.backend,
           task: session.taskId ?? '-',
-          state: session.dead ? `finished (${session.exitCode ?? '?'})` : 'running',
-          attach: `tmux attach -t ${session.name}`,
+          state: session.dead
+            ? `finished (${session.exitCode ?? '?'})`
+            : (session.agentState ?? 'running'),
+          attach: session.attach,
         })),
         [
           { key: 'name', label: 'SESSION' },
+          { key: 'backend', label: 'BACKEND' },
           { key: 'task', label: 'TASK' },
           { key: 'state', label: 'STATE' },
           { key: 'attach', label: 'ATTACH' },
@@ -1551,14 +1581,16 @@ function buildProgram(): Command {
     .command('kill <name>')
     .description('close a crew session')
     .action((name: string) => {
-      const killed = killSession(name);
-      if (!killed) {
+      const result = killSessionByName(name, {
+        stateDir: sessionStateDir(),
+      });
+      if (!result.killed) {
         throw new CrewError('SESSION_NOT_FOUND', `Session not found: ${name}`);
       }
       if (globalOptions().json) {
-        printJson({ killed: true, name });
+        printJson({ killed: true, name, backend: result.backend });
       } else {
-        console.log(`Session ${name} closed`);
+        console.log(`Session ${name} closed (${result.backend})`);
       }
     });
 

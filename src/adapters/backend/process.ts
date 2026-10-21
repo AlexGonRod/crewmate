@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { redactText } from '../../core/redact';
-import { sessionPid, startSession, waitForSession } from '../../app/session';
+import { resolveBackend, type SessionMode } from '../../app/session';
 import { remoteProcessOptions, type RemoteRunner } from '../../app/runner';
 
 export interface ProcessResult {
@@ -24,6 +24,10 @@ export interface RunProcessOptions {
   signal?: AbortSignal;
   onSpawn?: (pid: number) => void;
   session?: string;
+  /** Which session backend runs the command. */
+  sessionMode?: SessionMode;
+  /** Where the session backends keep their state. */
+  sessionStateDir?: string;
   stdinPath?: string;
   remote?: RemoteRunner | null;
 }
@@ -70,21 +74,29 @@ async function runSessionProcess(
     log.write(`${JSON.stringify({ ts: new Date().toISOString(), stream, line })}\n`);
   };
 
-  writeLog('crew', `tmux session started: ${name} (${command} ${args.join(' ')})`);
-  const started = startSession({
+  const backend = resolveBackend(options.sessionMode ?? 'auto', {
+    stateDir: options.sessionStateDir,
+  });
+  const exitFile = path.join(path.dirname(logPath), 'exit');
+  writeLog(
+    'crew',
+    `${backend.id} session started: ${name} (${command} ${args.join(' ')})`,
+  );
+  const started = backend.start({
     name,
     command,
     args,
     cwd,
     env,
     stdinPath: options.stdinPath,
+    exitFile,
   });
   if (!started.ok) {
     log.end();
-    throw new Error(started.error ?? `Could not start the tmux session ${name}`);
+    throw new Error(started.error ?? `Could not start the ${backend.id} session ${name}`);
   }
 
-  const pid = sessionPid(name);
+  const pid = backend.pid(name);
   if (pid && onSpawn) {
     try {
       onSpawn(pid);
@@ -93,7 +105,7 @@ async function runSessionProcess(
     }
   }
 
-  const result = await waitForSession(name, {
+  const result = await backend.wait(name, {
     timeoutMs,
     signal,
   });
@@ -105,7 +117,7 @@ async function runSessionProcess(
   }
   writeLog(
     'crew',
-    `tmux session finished: code=${result.exitCode} timed_out=${result.timedOut}`,
+    `${backend.id} session finished: code=${result.exitCode} timed_out=${result.timedOut}`,
   );
   log.end();
   return {

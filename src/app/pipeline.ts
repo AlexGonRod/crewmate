@@ -28,6 +28,7 @@ import {
 } from '../ci/ci';
 import { currentBranch } from '../git/git';
 import { resolveWorkspace } from './workspace';
+import type { SessionMode } from './session';
 import {
   DEFAULT_VERIFY_TIMEOUT_SECONDS,
   runVerificationCommands,
@@ -52,7 +53,7 @@ export interface PipelineOptions {
   testerModel?: string;
   maxIterations?: number;
   delivery?: DeliveryMode;
-  session?: 'tmux';
+  session?: SessionMode;
   remoteHost?: string;
   timeoutSeconds?: number;
   env?: Record<string, string>;

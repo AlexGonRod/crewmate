@@ -1,211 +1,110 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { CrewError } from '../core/errors';
+import { HerdrBackend } from './session/herdr';
+import { TmuxBackend } from './session/tmux';
+import type {
+  SessionBackend,
+  SessionBackendId,
+  SessionInfo,
+  SessionMode,
+} from './session/types';
 
-export interface SessionInfo {
-  name: string;
-  taskId: string | null;
-  command: string;
-  createdAt: string | null;
-  dead: boolean;
-  exitCode: number | null;
-}
+export type {
+  SessionBackend,
+  SessionBackendId,
+  SessionInfo,
+  SessionMode,
+  SessionRunResult,
+  SessionStatus,
+  StartSessionOptions,
+  WaitSessionOptions,
+} from './session/types';
+export { HerdrBackend } from './session/herdr';
+export { TmuxBackend } from './session/tmux';
 
-export interface SessionRunResult {
-  exitCode: number | null;
-  output: string;
-  timedOut: boolean;
-}
-
-function tmux(args: string[], options: { cwd?: string } = {}): { status: number; stdout: string } {
-  const result = spawnSync('tmux', args, {
-    cwd: options.cwd,
-    encoding: 'utf8',
-  });
-  if (result.error) {
-    return { status: 1, stdout: '' };
-  }
-  return { status: result.status ?? 1, stdout: result.stdout ?? '' };
-}
-
-export function tmuxAvailable(): boolean {
-  return tmux(['-V']).status === 0;
-}
+export const DEFAULT_SESSION_STATE_DIR = '.crew-sessions';
 
 export function sessionNameForTask(taskId: string, role?: string): string {
   return role ? `crew-${taskId}-${role}` : `crew-${taskId}`;
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
+export interface BackendOptions {
+  /** Where the backends keep their own state (herdr keeps the pane mapping). */
+  stateDir?: string;
 }
 
-function buildCommand(
-  command: string,
-  args: string[],
-  env: Record<string, string | undefined>,
-): string {
-  const parts: string[] = [];
-  const entries = Object.entries(env).filter(([, value]) => value !== undefined);
-  if (entries.length > 0) {
-    parts.push('env');
-    for (const [key, value] of entries) {
-      parts.push(`${key}=${shellQuote(value as string)}`);
-    }
+/**
+ * Resolves the session backend to use.
+ *
+ * `auto` prefers herdr when its server is running and falls back to tmux,
+ * which keeps the crew usable in either world.
+ */
+export function resolveBackend(
+  mode: SessionMode = 'auto',
+  options: BackendOptions = {},
+): SessionBackend {
+  if (mode === 'tmux') {
+    return new TmuxBackend();
   }
-  parts.push(shellQuote(command));
-  for (const arg of args) {
-    parts.push(shellQuote(arg));
+  if (mode === 'herdr') {
+    return new HerdrBackend(options.stateDir ?? DEFAULT_SESSION_STATE_DIR);
   }
-  return parts.join(' ');
+  const herdr = new HerdrBackend(options.stateDir ?? DEFAULT_SESSION_STATE_DIR);
+  if (herdr.available()) {
+    return herdr;
+  }
+  const tmux = new TmuxBackend();
+  if (tmux.available()) {
+    return tmux;
+  }
+  throw new CrewError(
+    'SESSION_BACKEND_UNAVAILABLE',
+    'No session backend is available: install tmux or run the herdr server.',
+  );
 }
 
-export interface StartSessionOptions {
-  name: string;
-  command: string;
-  args: string[];
-  cwd: string;
-  env: Record<string, string | undefined>;
-  stdinPath?: string;
+export function backendAvailable(id: SessionBackendId, options: BackendOptions = {}): boolean {
+  if (id === 'tmux') {
+    return new TmuxBackend().available();
+  }
+  return new HerdrBackend(options.stateDir ?? DEFAULT_SESSION_STATE_DIR).available();
 }
 
-export function startSession(options: StartSessionOptions): { ok: boolean; error?: string } {
-  if (!tmuxAvailable()) {
-    return { ok: false, error: 'tmux is not available' };
+/**
+ * Every crew session, whatever backend owns it.
+ */
+export function listAllSessions(options: BackendOptions = {}): {
+  backends: Array<{ id: SessionBackendId; available: boolean; version: string }>;
+  sessions: SessionInfo[];
+} {
+  const tmux = new TmuxBackend();
+  const herdr = new HerdrBackend(options.stateDir ?? DEFAULT_SESSION_STATE_DIR);
+  const sessions: SessionInfo[] = [];
+  if (tmux.available()) {
+    sessions.push(...tmux.list());
   }
-  const existing = tmux(['has-session', '-t', options.name]);
-  if (existing.status === 0) {
-    tmux(['kill-session', '-t', options.name]);
+  if (herdr.available()) {
+    sessions.push(...herdr.list());
   }
-  const command = buildCommand(options.command, options.args, options.env);
-  const stdin = options.stdinPath ? ` < ${shellQuote(options.stdinPath)}` : '';
-  const script = `tmux set-option -t ${shellQuote(options.name)} remain-on-exit on; ${command}${stdin}`;
-  const created = tmux([
-    'new-session',
-    '-d',
-    '-s',
-    options.name,
-    '-c',
-    options.cwd,
-    'sh',
-    '-c',
-    script,
-  ]);
-  if (created.status !== 0) {
-    return { ok: false, error: `Could not create the tmux session ${options.name}` };
-  }
-  return { ok: true };
-}
-
-export function sessionPid(name: string): number | null {
-  const result = tmux(['list-panes', '-t', name, '-F', '#{pane_pid}']);
-  if (result.status !== 0) {
-    return null;
-  }
-  const pid = Number(result.stdout.trim());
-  return Number.isInteger(pid) && pid > 0 ? pid : null;
-}
-
-export function captureSession(name: string): string {
-  const result = tmux(['capture-pane', '-p', '-t', name, '-S', '-']);
-  return result.status === 0 ? result.stdout : '';
-}
-
-export function sessionStatus(name: string): { dead: boolean; exitCode: number | null } {
-  const result = tmux([
-    'list-panes',
-    '-t',
-    name,
-    '-F',
-    '#{pane_dead} #{pane_dead_status}',
-  ]);
-  if (result.status !== 0) {
-    return { dead: true, exitCode: null };
-  }
-  const [dead, status] = result.stdout.trim().split(/\s+/);
   return {
-    dead: dead === '1',
-    exitCode: status === undefined ? null : Number(status),
+    backends: [
+      { id: 'tmux', available: tmux.available(), version: tmux.version() },
+      { id: 'herdr', available: herdr.available(), version: herdr.version() },
+    ],
+    sessions,
   };
 }
 
-export function waitForSession(
+export function killSessionByName(
   name: string,
-  options: { timeoutMs: number; pollMs?: number; signal?: AbortSignal },
-): Promise<SessionRunResult> {
-  const pollMs = Math.max(50, options.pollMs ?? 250);
-  const deadline = Date.now() + Math.max(0, options.timeoutMs);
-  return new Promise((resolve) => {
-    let timedOut = false;
-    const finish = (exitCode: number | null): void => {
-      clearInterval(timer);
-      options.signal?.removeEventListener('abort', onAbort);
-      resolve({
-        exitCode,
-        output: captureSession(name),
-        timedOut,
-      });
-    };
-    const onAbort = (): void => {
-      timedOut = true;
-      killSession(name);
-      finish(null);
-    };
-    const timer = setInterval(() => {
-      const status = sessionStatus(name);
-      if (status.dead) {
-        finish(status.exitCode);
-        return;
-      }
-      if (Date.now() >= deadline) {
-        timedOut = true;
-        killSession(name);
-        finish(null);
-      }
-    }, pollMs);
-    options.signal?.addEventListener('abort', onAbort, { once: true });
-    if (options.signal?.aborted) {
-      onAbort();
-    }
-  });
-}
-
-export function killSession(name: string): boolean {
-  return tmux(['kill-session', '-t', name]).status === 0;
-}
-
-export function listSessions(): SessionInfo[] {
-  const result = tmux([
-    'list-sessions',
-    '-F',
-    '#{session_name}\t#{session_created}\t#{session_windows}',
-  ]);
-  if (result.status !== 0) {
-    return [];
+  options: BackendOptions = {},
+): { killed: boolean; backend: SessionBackendId | null } {
+  const herdr = new HerdrBackend(options.stateDir ?? DEFAULT_SESSION_STATE_DIR);
+  if (herdr.available() && herdr.kill(name)) {
+    return { killed: true, backend: 'herdr' };
   }
-  const sessions: SessionInfo[] = [];
-  for (const line of result.stdout.split('\n')) {
-    const [name, created, windows] = line.split('\t');
-    if (!name || !name.startsWith('crew-')) {
-      continue;
-    }
-    const withoutPrefix = name.replace(/^crew-/, '');
-    const taskId = withoutPrefix.split('-')[0] ?? withoutPrefix;
-    const status = sessionStatus(name);
-    sessions.push({
-      name,
-      taskId,
-      command: `${windows ?? '1'} window(s)`,
-      createdAt: created ? new Date(Number(created) * 1000).toISOString() : null,
-      dead: status.dead,
-      exitCode: status.exitCode,
-    });
+  const tmux = new TmuxBackend();
+  if (tmux.available() && tmux.kill(name)) {
+    return { killed: true, backend: 'tmux' };
   }
-  return sessions;
-}
-
-export function tmuxVersion(): string {
-  try {
-    return execFileSync('tmux', ['-V'], { encoding: 'utf8' }).trim();
-  } catch {
-    return '';
-  }
+  return { killed: false, backend: null };
 }
