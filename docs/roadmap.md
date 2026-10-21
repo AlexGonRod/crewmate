@@ -325,6 +325,9 @@ Referencia: ADR 0020.
 Estado: **en curso** (4.1 completada).
 
 - Sesiones visibles en tmux/PTY, con capacidad de observar o intervenir.
+  **Completada** (ADR 0023): `task run --session tmux` ejecuta el agente en una
+  sesión `crew-<taskId>-<rol>` observable e intervenible, con la salida
+  capturada en el log del run; `crew sessions list|kill` las gestiona.
 - Workers en hosts remotos alcanzables por SSH.
 - Memoria de proyecto para no repetir contexto entre sesiones. **Completada**
   (ADR 0021): notas durables por proyecto que llegan al brief de cada agente y

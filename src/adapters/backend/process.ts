@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { redactText } from '../../core/redact';
+import { sessionPid, startSession, waitForSession } from '../../app/session';
 
 export interface ProcessResult {
   exitCode: number | null;
@@ -21,6 +22,8 @@ export interface RunProcessOptions {
   quiet?: boolean;
   signal?: AbortSignal;
   onSpawn?: (pid: number) => void;
+  session?: string;
+  stdinPath?: string;
 }
 
 function cleanEnv(env: Record<string, string | undefined>): NodeJS.ProcessEnv {
@@ -52,7 +55,69 @@ function killTree(child: ChildProcess, signal: NodeJS.Signals): void {
   }
 }
 
+async function runSessionProcess(
+  options: RunProcessOptions,
+  name: string,
+): Promise<ProcessResult> {
+  const { command, args, cwd, env, logPath, timeoutMs, quiet = false, signal, onSpawn } =
+    options;
+  mkdirSync(path.dirname(logPath), { recursive: true });
+  const log = createWriteStream(logPath, { flags: 'a' });
+  const processEnv = cleanEnv(env);
+  const writeLog = (stream: string, line: string): void => {
+    log.write(`${JSON.stringify({ ts: new Date().toISOString(), stream, line })}\n`);
+  };
+
+  writeLog('crew', `tmux session started: ${name} (${command} ${args.join(' ')})`);
+  const started = startSession({
+    name,
+    command,
+    args,
+    cwd,
+    env,
+    stdinPath: options.stdinPath,
+  });
+  if (!started.ok) {
+    log.end();
+    throw new Error(started.error ?? `Could not start the tmux session ${name}`);
+  }
+
+  const pid = sessionPid(name);
+  if (pid && onSpawn) {
+    try {
+      onSpawn(pid);
+    } catch (error) {
+      writeLog('crew', `onSpawn failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  const result = await waitForSession(name, {
+    timeoutMs,
+    signal,
+  });
+
+  const output = redactText(result.output, processEnv);
+  writeLog('stdout', output);
+  if (!quiet && output.trim()) {
+    process.stdout.write(`${output}\n`);
+  }
+  writeLog(
+    'crew',
+    `tmux session finished: code=${result.exitCode} timed_out=${result.timedOut}`,
+  );
+  log.end();
+  return {
+    exitCode: result.exitCode,
+    signal: null,
+    timedOut: result.timedOut,
+    outputTail: output,
+  };
+}
+
 export function runProcess(options: RunProcessOptions): Promise<ProcessResult> {
+  if (options.session) {
+    return runSessionProcess(options, options.session);
+  }
   const {
     command,
     args,

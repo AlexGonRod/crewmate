@@ -394,6 +394,61 @@ describe('captain layer', () => {
     expect(entry.scout.summary).toContain('investigated');
   });
 
+  it('runs the agent in a visible tmux session', () => {
+    const hasTmux = spawnSync('tmux', ['-V']).status === 0;
+    if (!hasTmux) {
+      return;
+    }
+    const created = cli([
+      '--json',
+      'task',
+      'create',
+      '--project',
+      'demo',
+      '--title',
+      'Visible session',
+      '--brief',
+      'Do the thing',
+      '--methodology',
+      'free',
+    ]);
+    const taskId = created.json.task.id as string;
+
+    const run = cli([
+      '--json',
+      'task',
+      'run',
+      taskId,
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=success',
+      '--session',
+      'tmux',
+      '--timeout',
+      '30',
+    ]);
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.json.task.state).toBe('review');
+
+    const sessions = cli(['--json', 'sessions', 'list']);
+    expect(sessions.status, sessions.stderr).toBe(0);
+    expect(sessions.json.available).toBe(true);
+    const entry = sessions.json.sessions.find(
+      (session: { taskId: string }) => session.taskId === taskId,
+    );
+    expect(entry).toBeTruthy();
+    expect(entry.dead).toBe(true);
+    expect(entry.exitCode).toBe(0);
+
+    const killed = cli(['--json', 'sessions', 'kill', entry.name]);
+    expect(killed.status, killed.stderr).toBe(0);
+    const after = cli(['--json', 'sessions', 'list']);
+    expect(
+      after.json.sessions.find((session: { name: string }) => session.name === entry.name),
+    ).toBeUndefined();
+  });
+
   it('limits the briefing to a single project', () => {
     const brief = cli(['--json', 'captain', 'brief', '--project', 'demo']);
     expect(brief.status, brief.stderr).toBe(0);

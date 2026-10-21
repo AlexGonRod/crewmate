@@ -6,6 +6,7 @@ import pc from 'picocolors';
 import { runDaemon, type DaemonTaskResult } from '../app/daemon';
 import { buildCaptainBrief, writeCaptainInstructions } from '../app/captain';
 import { mergeTask } from '../app/merge';
+import { killSession, listSessions, tmuxAvailable } from '../app/session';
 import { intakeProject } from '../app/intake';
 import { applyPlan, parsePlan, validatePlan } from '../app/plan';
 import { buildProgress, renderProgress } from '../app/progress';
@@ -645,6 +646,7 @@ function buildProgram(): Command {
     .option('--delivery <mode>', 'override the delivery mode')
     .option('--timeout <seconds>', 'timeout in seconds', Number)
     .option('--env <key=value>', 'extra environment variable', collect, [])
+    .option('--session <mode>', 'run the agent in a visible tmux session')
     .option('--quiet', 'do not stream agent output')
     .action(
       async (
@@ -660,6 +662,7 @@ function buildProgram(): Command {
           delivery?: string;
           timeout?: number;
           env: string[];
+          session?: string;
           quiet?: boolean;
         },
       ) => {
@@ -680,6 +683,7 @@ function buildProgram(): Command {
             timeoutSeconds: options.timeout,
             env: parseEnv(options.env),
             quiet: Boolean(options.quiet || json),
+            session: options.session === 'tmux' ? 'tmux' : undefined,
           }),
         );
 
@@ -1386,6 +1390,59 @@ function buildProgram(): Command {
             ? `Wrote ${result.path}`
             : `Overwrote ${result.path}`,
         );
+      }
+    });
+
+  const sessions = program
+    .command('sessions')
+    .description('list the visible agent sessions (tmux)');
+
+  sessions
+    .command('list')
+    .description('list the crew tmux sessions and how to attach to them')
+    .action(() => {
+      const available = tmuxAvailable();
+      const list = available ? listSessions() : [];
+      if (globalOptions().json) {
+        printJson({ available, sessions: list });
+        return;
+      }
+      if (!available) {
+        console.log('tmux is not available on this machine');
+        return;
+      }
+      if (list.length === 0) {
+        console.log('No crew sessions');
+        return;
+      }
+      printTable(
+        list.map((session) => ({
+          name: session.name,
+          task: session.taskId ?? '-',
+          state: session.dead ? `finished (${session.exitCode ?? '?'})` : 'running',
+          attach: `tmux attach -t ${session.name}`,
+        })),
+        [
+          { key: 'name', label: 'SESSION' },
+          { key: 'task', label: 'TASK' },
+          { key: 'state', label: 'STATE' },
+          { key: 'attach', label: 'ATTACH' },
+        ],
+      );
+    });
+
+  sessions
+    .command('kill <name>')
+    .description('close a crew session')
+    .action((name: string) => {
+      const killed = killSession(name);
+      if (!killed) {
+        throw new CrewError('SESSION_NOT_FOUND', `Session not found: ${name}`);
+      }
+      if (globalOptions().json) {
+        printJson({ killed: true, name });
+      } else {
+        console.log(`Session ${name} closed`);
       }
     });
 

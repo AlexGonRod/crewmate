@@ -142,6 +142,8 @@ crew task clean tsk_... --force
 | `crew task reject <id> [motivo...] [--reason <texto>]` | Rechaza, guarda feedback y reencola al developer |
 | `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--scheduling <serial\|parallel>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
+| `crew sessions list` | Lista las sesiones visibles de agente (tmux) y cómo conectarse |
+| `crew sessions kill <name>` | Cierra una sesión visible |
 | `crew scout --project <ref> --title <t> --question <pregunta> [--queue]` | Crea una tarea de investigación que produce un informe |
 | `crew memory add --project <ref> --kind <kind> --title <t> --body <texto>` | Añade una nota durable al proyecto |
 | `crew memory list --project <ref> [--kind <kind>]` | Lista la memoria del proyecto |
@@ -391,6 +393,25 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## Sesiones visibles
+
+Para ver (o intervenir en) al agente mientras trabaja:
+
+```sh
+crew task run tsk_... --harness opencode --session tmux
+```
+
+- El agente corre en una sesión tmux `crew-<taskId>-<rol>`: te puedes conectar
+  con `tmux attach -t crew-<taskId>-developer` y ver (o interrumpir) lo que
+  hace.
+- La salida del pane se captura y se escribe en el log del run, así que el
+  reporte se lee igual que en modo normal.
+- `crew sessions list` muestra las sesiones, su estado y el comando para
+  conectarse; `crew sessions kill <nombre>` las cierra.
+- Sin `tmux` instalado, el motor sigue funcionando en modo normal.
+
+Ver ADR 0023.
 
 ## Tareas scout
 

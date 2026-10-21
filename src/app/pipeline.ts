@@ -53,6 +53,7 @@ export interface PipelineOptions {
   testerModel?: string;
   maxIterations?: number;
   delivery?: DeliveryMode;
+  session?: 'tmux';
   timeoutSeconds?: number;
   env?: Record<string, string>;
   quiet?: boolean;
@@ -187,6 +188,7 @@ async function runPipelineLocked(
     timeoutSeconds: options.timeoutSeconds,
     env: options.env ?? {},
     quiet: options.quiet,
+    session: options.session,
   };
 
   let developerReport: Report | null = null;

@@ -20,6 +20,7 @@ import { ensureWorktree, removeWorktree } from '../git/worktree';
 import { assertHarnessAvailable } from '../adapters/harness/detect';
 import { getHarness, resolveHarnessId } from '../adapters/harness/registry';
 import { runProcess, type ProcessResult } from '../adapters/backend/process';
+import { sessionNameForTask } from './session';
 import {
   normalizeReport,
   parseReportFromOutput,
@@ -44,6 +45,7 @@ export interface RunStageOptions {
   env: Record<string, string>;
   quiet?: boolean;
   signal?: AbortSignal;
+  session?: 'tmux';
 }
 
 export interface RunStageResult {
@@ -218,6 +220,8 @@ export async function runStage(
       stdin: brief,
       quiet: options.quiet,
       signal: options.signal,
+      session: options.session ? sessionNameForTask(task.id, role) : undefined,
+      stdinPath: briefPath,
       onSpawn: (pid) => {
         store.markRunRunning(run.id, pid);
       },
