@@ -356,6 +356,44 @@ describe('captain layer', () => {
     expect(cli(['--json', 'memory', 'list', '--project', 'demo']).json.memories).toHaveLength(0);
   });
 
+  it('creates a scout task for the captain', () => {
+    const created = cli([
+      '--json',
+      'scout',
+      '--project',
+      'demo',
+      '--title',
+      'How does the queue drain?',
+      '--question',
+      'Investigate the daemon scheduling and report how tasks are picked.',
+    ]);
+    expect(created.status, created.stderr).toBe(0);
+    expect(created.json.task.deliveryMode).toBe('scout');
+    expect(created.json.task.state).toBe('draft');
+
+    const run = cli([
+      '--json',
+      'task',
+      'run',
+      created.json.task.id,
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=scout',
+      '--timeout',
+      '20',
+    ]);
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.json.task.state).toBe('review');
+
+    const brief = cli(['--json', 'captain', 'brief']);
+    expect(brief.status, brief.stderr).toBe(0);
+    const entry = brief.json.tasks.find(
+      (task: any) => task.taskId === created.json.task.id,
+    );
+    expect(entry.scout.summary).toContain('investigated');
+  });
+
   it('limits the briefing to a single project', () => {
     const brief = cli(['--json', 'captain', 'brief', '--project', 'demo']);
     expect(brief.status, brief.stderr).toBe(0);

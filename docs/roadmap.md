@@ -330,6 +330,10 @@ Estado: **en curso** (4.1 completada).
   (ADR 0021): notas durables por proyecto que llegan al brief de cada agente y
   al briefing del capitán.
 - Tareas de investigación (`scout`) con informes independientes.
+  **Completada** (ADR 0022): el modo `scout` es un recorrido propio del
+  pipeline (sin verificación, tester, commit ni PR) que termina en `review`
+  con un informe `crew.report/v3` guardado como artefacto `scout`, y
+  `crew scout` lo crea en una línea.
 - UI web o servicio del sistema.
 - Soporte de más forges además de GitHub.
 

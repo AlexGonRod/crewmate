@@ -105,6 +105,10 @@ export interface TaskSummary {
     url: string;
     state: 'open' | 'merged' | 'merge_failed' | 'unknown';
   } | null;
+  scout: {
+    summary: string;
+    findings: Array<{ severity: string; message: string }>;
+  } | null;
   attempts: number;
   nextAttemptAt: string | null;
   lastError: string | null;

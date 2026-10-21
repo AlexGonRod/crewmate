@@ -1891,6 +1891,46 @@ export class Store {
     });
   }
 
+  recordScoutReport(taskId: string, report: Report): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      const findings = report.payload.findings ?? [];
+      const createdAt = nowIso();
+      this.db
+        .prepare(
+          `INSERT INTO artifacts (id, task_id, run_id, kind, ref, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          newId('art'),
+          task.id,
+          report.runId,
+          'scout',
+          report.summary,
+          JSON.stringify({
+            report_id: report.id,
+            summary: report.summary,
+            details: report.payload.details ?? null,
+            findings,
+            follow_ups: report.payload.follow_ups ?? [],
+          }),
+          createdAt,
+        );
+      this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'scout.completed',
+        payload: {
+          report_id: report.id,
+          summary: report.summary,
+          findings: findings.length,
+        },
+      });
+      return this.getTaskOrThrow(taskId);
+    });
+  }
+
   recordCiCheck(taskId: string, result: CiResult): Task {
     return this.transaction(() => {
       const task = this.getTaskOrThrow(taskId);

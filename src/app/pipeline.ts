@@ -88,10 +88,6 @@ function requiresGithubDelivery(mode: DeliveryMode): boolean {
   return mode === 'pr' || mode === 'auto_merge';
 }
 
-function isUnsupportedDelivery(mode: DeliveryMode): boolean {
-  return mode === 'scout';
-}
-
 const TASK_LEASE_TTL_SECONDS = 30;
 const TASK_LEASE_HEARTBEAT_MS = 10_000;
 
@@ -134,13 +130,14 @@ async function runPipelineLocked(
   }
 
   const projectConfig = readProjectConfig(project.rootPath);
-  const verifyCommands = verificationCommands(projectConfig, task);
   const maxIterations =
     options.maxIterations ??
     projectConfig?.review?.max_iterations ??
     context.config.review.maxIterations;
   const delivery: DeliveryMode =
     options.delivery ?? task.deliveryMode ?? context.config.delivery;
+  const isScout = delivery === 'scout';
+  const verifyCommands = isScout ? [] : verificationCommands(projectConfig, task);
   const developerHarnessId =
     options.developerHarnessId ??
     context.config.agents.developer.harness ??
@@ -151,12 +148,6 @@ async function runPipelineLocked(
     context.config.agents.tester.harness ??
     task.harnessId ??
     context.config.harness;
-  if (isUnsupportedDelivery(delivery)) {
-    throw new CrewError(
-      'DELIVERY_UNSUPPORTED',
-      `Delivery mode "${delivery}" is not supported yet`,
-    );
-  }
   if (requiresGithubDelivery(delivery)) {
     if (project.forge !== 'github') {
       throw new CrewError(
@@ -256,6 +247,25 @@ async function runPipelineLocked(
     developerReportPath = developer.reportPath;
 
     if (task.state !== 'running') {
+      return {
+        task,
+        outcome: outcomeFor(task),
+        stage: task.stage,
+        runs: store.listRuns(task.id),
+        report: developer.report,
+        developerReport,
+        testerReport: null,
+        verifications,
+        ci: null,
+        merge: null,
+        commitSha: task.commitSha,
+        prUrl: task.prUrl,
+      };
+    }
+
+    if (isScout && developer.report) {
+      store.recordScoutReport(task.id, developer.report);
+      task = store.requestReview(task.id);
       return {
         task,
         outcome: outcomeFor(task),

@@ -758,20 +758,28 @@ describe('phase 0 walking skeleton', () => {
     expect(failed.payload.reason).toContain('Independent verification failed');
   });
 
-  it('rejects unsupported delivery modes before starting an agent', () => {
-    const id = createTask('Unsupported delivery', 'Do the thing', [
+  it('runs a scout task as research and stores its independent report', () => {
+    const id = createTask('Scout research', 'How is the queue drained?', [
       '--methodology',
       'free',
       '--delivery',
       'scout',
     ]);
-    const result = runTask(id, 'success');
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('DELIVERY_UNSUPPORTED');
+    const result = runTask(id, 'scout');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.task.state).toBe('review');
+    expect(result.json.task.commitSha).toBeNull();
+    expect(result.json.verifications).toHaveLength(0);
+    expect(result.json.testerReport).toBeNull();
 
     const shown = cli(['--json', 'task', 'show', id]);
-    expect(shown.json.task.state).toBe('draft');
-    expect(shown.json.runs).toHaveLength(0);
+    expect(shown.json.summary.scout.summary).toContain('investigated');
+    expect(shown.json.summary.scout.findings).toHaveLength(1);
+    const types = shown.json.events.map((event: { type: string }) => event.type);
+    expect(types).toContain('scout.completed');
+
+    const text = cli(['task', 'show', id]);
+    expect(text.stdout).toContain('Scout:');
   });
 
   it('requeues after tester rejection and fails at the iteration limit', () => {

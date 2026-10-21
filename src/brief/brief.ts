@@ -169,11 +169,36 @@ A \`done\` report must include a \`passed\` entry for ${criteriaList} in
 `;
 }
 
+function renderScoutInstructions(): string {
+  return `## Role: Scout (research)
+
+You are investigating a question about this repository. Your deliverable is a
+report, not a change.
+
+1. Read the goal, the project memory and the relevant parts of the repository.
+2. Investigate with read-only tools. You may run read-only commands and
+   tests, but you must not modify, create or delete files, and you must not
+   commit, push or open pull requests.
+3. Report what you found: the files and commands that matter, the evidence
+   behind each conclusion, and what remains unknown.
+4. Report open questions in \`follow_ups\` and doubts in \`findings\` with a
+   severity of \`warning\` or \`info\`.
+
+Emit a \`crew.report/v3\` report with \`role\` set to \`developer\`, status
+\`done\` and the findings in the \`findings\` array.
+`;
+}
+
 function renderRoleInstructions(input: {
   role: AgentRole;
   reviewIteration: number;
   developerReportPath?: string;
+  scout?: boolean;
 }): string {
+  if (input.scout && input.role === 'developer') {
+    return renderScoutInstructions();
+  }
+
   if (input.role === 'tester') {
     const developerReport = input.developerReportPath
       ? `- Developer report: \`${input.developerReportPath}\``
@@ -219,7 +244,25 @@ function renderReportTemplate(
   spec: TaskSpec | null,
   role: AgentRole,
   reviewIteration: number,
+  scout = false,
 ): string {
+  if (scout && role === 'developer') {
+    return `{
+  "schema": "crew.report/v3",
+  "task_id": "${task.id}",
+  "run_id": "${run.id}",
+  "methodology": "${methodology}",
+  "role": "developer",
+  "status": "done",
+  "summary": "What the investigation found",
+  "details": "Longer analysis with references to files and commands",
+  "findings": [
+    {"severity": "warning", "message": "What is worth knowing"}
+  ],
+  "follow_ups": ["Open questions"]
+}`;
+  }
+
   if (role === 'tester') {
     const acceptance = (spec?.acceptance_criteria ?? [])
       .map(
@@ -352,6 +395,7 @@ export function generateBrief(input: BriefInput): string {
     role,
     reviewIteration,
     developerReportPath,
+    scout: task.deliveryMode === 'scout',
   });
   const methodologySection =
     role === 'developer' ? renderMethodology(methodology, spec) : '';
@@ -362,9 +406,12 @@ export function generateBrief(input: BriefInput): string {
     spec,
     role,
     reviewIteration,
+    task.deliveryMode === 'scout',
   );
   const reportSchema =
-    role === 'tester' ? 'crew.report/v3' : `crew.report/v${methodology === 'free' ? '1' : '2'}`;
+    role === 'tester' || task.deliveryMode === 'scout'
+      ? 'crew.report/v3'
+      : `crew.report/v${methodology === 'free' ? '1' : '2'}`;
   const methodologyDone =
     methodology === 'free'
       ? ''

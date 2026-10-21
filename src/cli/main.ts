@@ -181,6 +181,12 @@ function renderTaskDetail(
       `Tester:    ${summary.tester.verdict ?? summary.tester.status} - ${summary.tester.findings} finding(s), ${summary.tester.blocking} blocking`,
     );
   }
+  if (summary.scout) {
+    console.log(`Scout:     ${summary.scout.summary}`);
+    for (const finding of summary.scout.findings) {
+      console.log(`  [${finding.severity}] ${finding.message}`);
+    }
+  }
   const ci = detail.artifacts.filter((artifact) => artifact.kind === 'ci').at(-1);
   if (ci) {
     const state = typeof ci.metadata?.state === 'string' ? ci.metadata.state : 'unknown';
@@ -1382,6 +1388,43 @@ function buildProgram(): Command {
         );
       }
     });
+
+  program
+    .command('scout')
+    .description('create a research task that produces a report instead of a change')
+    .requiredOption('--project <ref>', 'project id or name')
+    .requiredOption('--title <title>', 'task title')
+    .requiredOption('--question <text>', 'what to investigate')
+    .option('--queue', 'queue the task for the daemon')
+    .action(
+      async (options: {
+        project: string;
+        title: string;
+        question: string;
+        queue?: boolean;
+      }) => {
+        const result = await withStore((store) => {
+          const project = store.getProject(options.project);
+          if (!project) {
+            throw new CrewError('PROJECT_NOT_FOUND', `Project not found: ${options.project}`);
+          }
+          const task = store.createTask({
+            projectId: project.id,
+            title: options.title,
+            briefText: options.question,
+            methodology: 'free',
+            spec: null,
+            deliveryMode: 'scout',
+          });
+          return options.queue ? store.queueTask(task.id) : task;
+        });
+        if (globalOptions().json) {
+          printJson({ task: result });
+        } else {
+          console.log(`Scout task ${result.id} [${result.state}] ${result.title}`);
+        }
+      },
+    );
 
   const memory = program
     .command('memory')

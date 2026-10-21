@@ -52,6 +52,10 @@ export function summarizeDetail(detail: TaskDetail): TaskSummary {
   const verifications = latestVerifications(detail);
   const ci = latestArtifact<CiResult>(detail, 'ci');
   const merge = latestArtifact<MergeResult>(detail, 'merge');
+  const scoutArtifact = latestArtifact<{
+    summary: string;
+    findings?: Array<{ severity: string; message: string }>;
+  }>(detail, 'scout');
 
   const failedVerifications = verifications.filter((verification) => verification.state !== 'passed');
   const verificationState: TaskSummary['verification']['state'] =
@@ -111,6 +115,12 @@ export function summarizeDetail(detail: TaskDetail): TaskSummary {
       : null,
     tester,
     pr,
+    scout: scoutArtifact
+      ? {
+          summary: scoutArtifact.summary,
+          findings: scoutArtifact.findings ?? [],
+        }
+      : null,
     attempts: task.attempts,
     nextAttemptAt: task.nextAttemptAt,
     lastError: task.lastError,

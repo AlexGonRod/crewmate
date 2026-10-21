@@ -142,6 +142,7 @@ crew task clean tsk_... --force
 | `crew task reject <id> [motivo...] [--reason <texto>]` | Rechaza, guarda feedback y reencola al developer |
 | `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--scheduling <serial\|parallel>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
+| `crew scout --project <ref> --title <t> --question <pregunta> [--queue]` | Crea una tarea de investigación que produce un informe |
 | `crew memory add --project <ref> --kind <kind> --title <t> --body <texto>` | Añade una nota durable al proyecto |
 | `crew memory list --project <ref> [--kind <kind>]` | Lista la memoria del proyecto |
 | `crew memory rm <id>` | Elimina una nota de la memoria |
@@ -390,6 +391,25 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## Tareas scout
+
+Para investigar antes de cambiar:
+
+```sh
+crew scout --project demo --title "Cómo se drena la cola" \
+  --question "Investiga el scheduler del daemon y explica cómo se eligen las tareas" --queue
+```
+
+- El scout es un recorrido propio del pipeline: sin verificación, sin tester,
+  sin commit, sin PR y sin CI.
+- El agente trabaja en modo investigación (no modifica ficheros) y entrega un
+  informe `crew.report/v3` con `findings` y preguntas abiertas.
+- El informe se guarda como artefacto `scout` y aparece en `task show` y en el
+  briefing del capitán.
+- La tarea scout termina en `review`: el capitán resume el hallazgo.
+
+Ver ADR 0022.
 
 ## Memoria de proyecto
 

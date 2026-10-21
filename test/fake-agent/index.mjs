@@ -189,6 +189,31 @@ if (role === 'tester') {
 }
 
 switch (scenario) {
+  case 'scout': {
+    mkdirSync(path.dirname(reportPath), { recursive: true });
+    writeFileSync(
+      reportPath,
+      JSON.stringify(
+        {
+          schema: 'crew.report/v3',
+          task_id: taskId,
+          run_id: runId,
+          methodology: 'free',
+          role: 'developer',
+          status: 'done',
+          summary: 'Fake scout investigated the question',
+          details: 'The fake agent read the repository and reported what it found.',
+          findings: [
+            { severity: 'warning', message: 'The area has no explicit tests' },
+          ],
+          follow_ups: ['Does the team agree with this conclusion?'],
+        },
+        null,
+        2,
+      ),
+    );
+    break;
+  }
   case 'success': {
     writeMarker('fake agent success\n');
     writeReport('done', 'Fake agent completed the task', {
