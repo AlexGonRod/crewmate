@@ -202,7 +202,8 @@ Los cinco criterios están cumplidos.
 
 ## Fase 3 — Capitán conversacional
 
-Estado: **en curso** (3.1 completada).
+Estado: **completada** (3.1–3.6). Queda ejecutar la misma demo con `opencode`
+real en lugar del agente falso, que es una comprobación manual y no de código.
 
 Esta fase entrega la experiencia de firstmate: hablar con un solo agente y que
 este dirija el trabajo. La implementación recomendada es una sesión/skill de

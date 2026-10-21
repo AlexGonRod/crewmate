@@ -66,7 +66,7 @@ El resto del alcance y las fases pendientes están en el
 | 0. Núcleo durable | Completada | Estado, worktrees, metodologías y recuperación |
 | 1. Pipeline y entrega | Completada | Developer, tester, verificación, commit/PR y daemon |
 | 2. Motor autónomo confiable | Completada | CI, auto-merge, concurrencia, riesgo y reintentos |
-| 3. Capitán conversacional | En curso | Capa capitán, intake, planificación, supervisión y merge |
+| 3. Capitán conversacional | Completada | Capa capitán, intake, planes, supervisión y merge |
 | 4. Runtime visible y escala | Pendiente | Sesiones visibles, remotos, memoria y scout |
 
 Detalle, criterios de salida y dependencias: [docs/roadmap.md](docs/roadmap.md).
