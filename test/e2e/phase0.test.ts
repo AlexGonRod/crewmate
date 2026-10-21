@@ -211,6 +211,55 @@ describe('phase 0 walking skeleton', () => {
     expect(shown.json.events.length).toBeGreaterThan(0);
   });
 
+  it('summarizes risk, verification and tester state for a task', () => {
+    const id = createTask('Risk summary');
+    const result = runTask(id, 'success');
+    expect(result.status, result.stderr).toBe(0);
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    expect(shown.status, shown.stderr).toBe(0);
+    const summary = shown.json.summary;
+    expect(summary.taskId).toBe(id);
+    expect(summary.state).toBe('review');
+    expect(summary.risk.level).toBe('low');
+    expect(summary.risk.score).toBe(0);
+    expect(summary.risk.change.files).toBeGreaterThan(0);
+    expect(summary.verification.state).toBe('passed');
+    expect(summary.verification.total).toBe(1);
+    expect(summary.tester.verdict).toBe('approve');
+    expect(summary.ci).toBeNull();
+    expect(summary.pr).toBeNull();
+
+    const text = cli(['task', 'show', id]);
+    expect(text.status, text.stderr).toBe(0);
+    expect(text.stdout).toContain('Risk:');
+    expect(text.stdout).toContain('low');
+    expect(text.stdout).toContain('Verify:');
+  });
+
+  it('shows a crew status overview with risk and CI summaries', () => {
+    const id = createTask('Status overview');
+    const result = runTask(id, 'success');
+    expect(result.status, result.stderr).toBe(0);
+
+    const status = cli(['--json', 'status', '--limit', '5']);
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.json.total_tasks).toBeGreaterThan(0);
+    expect(status.json.counts.review).toBeGreaterThan(0);
+    expect(status.json.active_runs).toBe(0);
+    const entry = status.json.tasks.find((task: any) => task.taskId === id);
+    expect(entry).toBeTruthy();
+    expect(entry.risk.level).toBe('low');
+    expect(entry.verification.state).toBe('passed');
+    expect(entry.ci).toBeNull();
+
+    const text = cli(['status', '--limit', '3']);
+    expect(text.status, text.stderr).toBe(0);
+    expect(text.stdout).toContain('Lease:');
+    expect(text.stdout).toContain('Recent tasks:');
+    expect(text.stdout).toContain('RISK');
+  });
+
   it('marks a crash without a report as failed', () => {
     const id = createTask('Fake crash');
     const result = runTask(id, 'crash');
@@ -488,6 +537,59 @@ describe('phase 0 walking skeleton', () => {
     expect(statusAfter.json.queued_tasks).toBe(0);
     expect(statusAfter.json.lease).toBeNull();
     expect(cli(['--json', 'task', 'accept', id]).json.task.state).toBe('done');
+  });
+
+  it('runs queued tasks concurrently without worktree or state collisions', () => {
+    const first = createTask('Concurrent first');
+    const second = createTask('Concurrent second');
+    expect(cli(['--json', 'task', 'queue', first]).json.task.state).toBe('queued');
+    expect(cli(['--json', 'task', 'queue', second]).json.task.state).toBe('queued');
+
+    const result = cli([
+      '--json',
+      'daemon',
+      'run',
+      '--max-tasks',
+      '2',
+      '--concurrency',
+      '2',
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=success',
+      '--quiet',
+    ]);
+    expect(result.status, result.stderr).toBe(0);
+    const lines = result.stdout
+      .trim()
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith('{'))
+      .map((line) => JSON.parse(line));
+    const stopped = lines.find((line) => line.event === 'daemon.stopped');
+    expect(stopped.stopped).toBe('max_tasks');
+    expect(stopped.processed).toHaveLength(2);
+
+    const startedAt = (id: string): number => {
+      const detail = cli(['--json', 'task', 'show', id]).json;
+      const event = detail.events.find(
+        (item: { type: string }) => item.type === 'task.started',
+      );
+      return Date.parse(event.createdAt);
+    };
+    const reviewedAt = (id: string): number => {
+      const detail = cli(['--json', 'task', 'show', id]).json;
+      const event = detail.events.find(
+        (item: { type: string }) => item.type === 'task.review.requested',
+      );
+      return Date.parse(event.createdAt);
+    };
+
+    expect(startedAt(second)).toBeLessThan(reviewedAt(first));
+    expect(startedAt(first)).toBeLessThan(reviewedAt(second));
+    expect(cli(['--json', 'task', 'show', first]).json.task.state).toBe('review');
+    expect(cli(['--json', 'task', 'show', second]).json.task.state).toBe('review');
+    expect(cli(['--json', 'task', 'accept', first]).json.task.state).toBe('done');
+    expect(cli(['--json', 'task', 'accept', second]).json.task.state).toBe('done');
   });
 
   it('reclaims stale runs and retries the failed task', () => {

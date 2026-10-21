@@ -14,6 +14,7 @@ import {
 import type {
   AgentRole,
   Artifact,
+  ChangeStats,
   CiResult,
   DeliveryMode,
   EventRecord,
@@ -905,6 +906,13 @@ export class Store {
     return row ? toReport(row) : null;
   }
 
+  listReports(taskId: string): Report[] {
+    const rows = this.db
+      .prepare('SELECT * FROM reports WHERE task_id = ? ORDER BY created_at ASC')
+      .all(taskId) as unknown as ReportRow[];
+    return rows.map(toReport);
+  }
+
   listMessages(taskId: string): Message[] {
     const rows = this.db
       .prepare('SELECT * FROM messages WHERE task_id = ? ORDER BY created_at ASC')
@@ -1254,15 +1262,19 @@ export class Store {
     });
   }
 
-  nextQueuedTask(): Task | null {
+  nextQueuedTask(excludeTaskIds: string[] = []): Task | null {
+    const exclusion =
+      excludeTaskIds.length > 0
+        ? ` AND id NOT IN (${excludeTaskIds.map(() => '?').join(', ')})`
+        : '';
     const row = this.db
       .prepare(
         `SELECT * FROM tasks
-         WHERE state = 'queued' AND stage = 'develop'
+         WHERE state = 'queued' AND stage = 'develop'${exclusion}
          ORDER BY priority DESC, created_at ASC
          LIMIT 1`,
       )
-      .get() as TaskRow | undefined;
+      .get(...excludeTaskIds) as TaskRow | undefined;
     return row ? toTask(row) : null;
   }
 
@@ -1476,6 +1488,40 @@ export class Store {
         payload: { commit_sha: sha },
       });
       return this.getTaskOrThrow(task.id);
+    });
+  }
+
+  recordChangeStats(taskId: string, stats: ChangeStats): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      const createdAt = nowIso();
+      this.db
+        .prepare(
+          `INSERT INTO artifacts (id, task_id, run_id, kind, ref, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          newId('art'),
+          task.id,
+          null,
+          'change',
+          `${stats.files} file(s), +${stats.additions}/-${stats.deletions}`,
+          JSON.stringify(stats),
+          createdAt,
+        );
+      this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'change.recorded',
+        payload: {
+          files: stats.files,
+          additions: stats.additions,
+          deletions: stats.deletions,
+          paths: stats.paths,
+        },
+      });
+      return this.getTaskOrThrow(taskId);
     });
   }
 
@@ -1724,6 +1770,7 @@ export class Store {
       project: this.getProject(task.projectId),
       runs: this.listRuns(task.id),
       report: this.getLatestReport(task.id),
+      reports: this.listReports(task.id),
       messages: this.listMessages(task.id),
       artifacts: this.listArtifacts(task.id),
       verifications: this.listVerifications(task.id),

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { runDaemon, type DaemonExecutor } from '../../src/app/daemon';
+import { runPipeline, type PipelineResult } from '../../src/app/pipeline';
+import { CrewError } from '../../src/core/errors';
 import type { ResolvedContext } from '../../src/config/config';
 import { newId } from '../../src/core/ids';
 import type { Project, ReportPayload, Task } from '../../src/core/types';
@@ -78,10 +80,10 @@ function reportFor(taskId: string, runId: string): ReportPayload {
   };
 }
 
-const successfulExecutor: DaemonExecutor = async (store, _context, options) => {
-  const runId = startRun(store, options.taskId);
+function completeTask(store: Store, taskId: string): PipelineResult {
+  const runId = startRun(store, taskId);
   store.markRunRunning(runId, process.pid);
-  store.recordReport(reportFor(options.taskId, runId));
+  store.recordReport(reportFor(taskId, runId));
   const task = store.finishRun({
     runId,
     exitCode: 0,
@@ -106,7 +108,20 @@ const successfulExecutor: DaemonExecutor = async (store, _context, options) => {
     commitSha: task.commitSha,
     prUrl: task.prUrl,
   };
-};
+}
+
+const successfulExecutor: DaemonExecutor = async (store, _context, options) =>
+  completeTask(store, options.taskId);
+
+async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error('timed out waiting for condition');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 afterEach(() => {
   while (stores.length > 0) {
@@ -233,6 +248,189 @@ describe('daemon', () => {
       runDaemon(store, context(), { once: true, execute: successfulExecutor }),
     ).rejects.toThrow('Another daemon holds the lease');
     expect(store.getLease('daemon')?.owner).toBe('other-host:1');
+  });
+
+  it('runs up to the configured concurrency and refills freed slots', async () => {
+    const store = createStore();
+    const tasks = [
+      createTask(store).task,
+      createTask(store).task,
+      createTask(store).task,
+    ];
+    for (const task of tasks) {
+      store.queueTask(task.id);
+    }
+
+    const launched: string[] = [];
+    const finishers = new Map<string, () => void>();
+    const execute: DaemonExecutor = (execStore, _context, options) =>
+      new Promise<PipelineResult>((resolve) => {
+        launched.push(options.taskId);
+        finishers.set(options.taskId, () =>
+          resolve(completeTask(execStore, options.taskId)),
+        );
+      });
+
+    const daemon = runDaemon(store, context(), {
+      intervalMs: 250,
+      concurrency: 2,
+      maxTasks: 3,
+      execute,
+    });
+
+    await waitFor(() => launched.length === 2);
+    expect(launched).toHaveLength(2);
+    expect(new Set(launched).size).toBe(2);
+
+    finishers.get(launched[0]!)!();
+    await waitFor(() => launched.length === 3);
+    expect(new Set(launched).size).toBe(3);
+
+    finishers.get(launched[1]!)!();
+    finishers.get(launched[2]!)!();
+    const result = await daemon;
+
+    expect(result.stopped).toBe('max_tasks');
+    expect(result.processed).toHaveLength(3);
+    for (const task of tasks) {
+      expect(store.getTaskOrThrow(task.id).state).toBe('done');
+    }
+  });
+
+  it('keeps concurrency at one by default', async () => {
+    const store = createStore();
+    const tasks = [createTask(store).task, createTask(store).task];
+    for (const task of tasks) {
+      store.queueTask(task.id);
+    }
+
+    const launched: string[] = [];
+    const finishers = new Map<string, () => void>();
+    const execute: DaemonExecutor = (execStore, _context, options) =>
+      new Promise<PipelineResult>((resolve) => {
+        launched.push(options.taskId);
+        finishers.set(options.taskId, () =>
+          resolve(completeTask(execStore, options.taskId)),
+        );
+      });
+
+    const daemon = runDaemon(store, context(), {
+      intervalMs: 250,
+      maxTasks: 2,
+      execute,
+    });
+
+    await waitFor(() => launched.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(launched).toHaveLength(1);
+
+    finishers.get(launched[0]!)!();
+    await waitFor(() => launched.length === 2);
+    finishers.get(launched[1]!)!();
+    const result = await daemon;
+
+    expect(result.stopped).toBe('max_tasks');
+    expect(result.processed).toHaveLength(2);
+  });
+
+  it('stops scheduling on abort and leaves unstarted tasks queued', async () => {
+    const store = createStore();
+    const tasks = [
+      createTask(store).task,
+      createTask(store).task,
+      createTask(store).task,
+    ];
+    for (const task of tasks) {
+      store.queueTask(task.id);
+    }
+
+    const controller = new AbortController();
+    const launched: string[] = [];
+    const execute: DaemonExecutor = (execStore, _context, options) =>
+      new Promise<PipelineResult>((resolve) => {
+        launched.push(options.taskId);
+        const finish = (): void =>
+          resolve(completeTask(execStore, options.taskId));
+        if (options.signal?.aborted) {
+          finish();
+          return;
+        }
+        options.signal?.addEventListener('abort', finish, { once: true });
+      });
+
+    const daemon = runDaemon(store, context(), {
+      intervalMs: 250,
+      concurrency: 2,
+      signal: controller.signal,
+      execute,
+    });
+
+    await waitFor(() => launched.length === 2);
+    controller.abort();
+    const result = await daemon;
+
+    expect(result.stopped).toBe('aborted');
+    expect(result.processed).toHaveLength(2);
+    expect(new Set(result.processed.map((entry) => entry.taskId))).toEqual(
+      new Set(launched),
+    );
+    const remaining = tasks.filter((task) => !launched.includes(task.id));
+    expect(remaining).toHaveLength(1);
+    expect(store.getTaskOrThrow(remaining[0]!.id).state).toBe('queued');
+    expect(store.getLease('daemon')).toBeNull();
+  });
+
+  it('leaves tasks leased by another process queued and retries later', async () => {
+    const store = createStore();
+    const leased = createTask(store).task;
+    const free = createTask(store).task;
+    store.queueTask(leased.id);
+    store.queueTask(free.id);
+
+    const launched: string[] = [];
+    const execute: DaemonExecutor = async (execStore, _context, options) => {
+      launched.push(options.taskId);
+      if (options.taskId === leased.id) {
+        throw new CrewError('TASK_LEASED', 'Task is already running');
+      }
+      return completeTask(execStore, options.taskId);
+    };
+
+    const result = await runDaemon(store, context(), {
+      intervalMs: 250,
+      maxTasks: 1,
+      execute,
+    });
+
+    expect(result.stopped).toBe('max_tasks');
+    expect(result.processed).toHaveLength(1);
+    expect(result.processed[0]?.taskId).toBe(free.id);
+    expect(launched).toEqual([leased.id, free.id]);
+    expect(store.getTaskOrThrow(leased.id).state).toBe('queued');
+    expect(store.getTaskOrThrow(free.id).state).toBe('done');
+  });
+});
+
+describe('task execution leases', () => {
+  it('rejects a task that another process is already executing', async () => {
+    const store = createStore();
+    const taskId = newId('tsk');
+    store.acquireLease(`task:${taskId}`, 'other-host:1', 30);
+
+    await expect(
+      runPipeline(store, context(), { taskId }),
+    ).rejects.toMatchObject({ code: 'TASK_LEASED' });
+    expect(store.getLease(`task:${taskId}`)?.owner).toBe('other-host:1');
+  });
+
+  it('releases the task lease when execution fails', async () => {
+    const store = createStore();
+    const taskId = newId('tsk');
+
+    await expect(
+      runPipeline(store, context(), { taskId }),
+    ).rejects.toThrow('Task not found');
+    expect(store.getLease(`task:${taskId}`)).toBeNull();
   });
 });
 

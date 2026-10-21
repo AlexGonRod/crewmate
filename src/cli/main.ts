@@ -8,11 +8,12 @@ import { addProject, initProject } from '../app/projects';
 import { detectHarness } from '../adapters/harness/detect';
 import { listHarnessAdapters } from '../adapters/harness/registry';
 import { runPipeline } from '../app/pipeline';
+import { summarizeDetail } from '../app/summary';
 import { loadContext, readProjectConfig, type ResolvedContext } from '../config/config';
 import { CrewError, errorMessage } from '../core/errors';
 import { isPidAlive, terminateProcessTree } from '../core/process';
 import { redactDeep } from '../core/redact';
-import type { DeliveryMode, TaskSpec, TaskState } from '../core/types';
+import type { DeliveryMode, TaskSpec, TaskState, TaskSummary } from '../core/types';
 import { runDoctor } from '../doctor/doctor';
 import { removeWorktree } from '../git/worktree';
 import { viewPullRequest } from '../git/forge';
@@ -139,7 +140,10 @@ function parseDeliveryMode(value: string): DeliveryMode {
   throw new CrewError('INVALID_DELIVERY_MODE', `Unknown delivery mode: ${value}`);
 }
 
-function renderTaskDetail(detail: ReturnType<Store['getTaskDetail']>): void {
+function renderTaskDetail(
+  detail: ReturnType<Store['getTaskDetail']>,
+  summary: TaskSummary,
+): void {
   const { task, project } = detail;
   console.log(`${pc.bold('Task')} ${task.id} [${stateLabel(task.state)}]`);
   console.log(`Title:     ${task.title}`);
@@ -150,7 +154,19 @@ function renderTaskDetail(detail: ReturnType<Store['getTaskDetail']>): void {
   console.log(`Harness:   ${task.harnessId ?? '-'}`);
   console.log(`Stage:     ${task.stage} (review iterations: ${task.reviewIterations})`);
   console.log(`Commit:    ${task.commitSha ?? '-'}`);
-  console.log(`PR:        ${task.prUrl ?? '-'}`);
+  console.log(`PR:        ${task.prUrl ?? '-'}${summary.pr ? ` (${summary.pr.state})` : ''}`);
+  const risk = summary.risk;
+  console.log(
+    `Risk:      ${risk ? `${risk.level} (score ${risk.score}) - ${risk.reasons.join('; ')}` : 'unknown (no change recorded)'}`,
+  );
+  console.log(
+    `Verify:    ${summary.verification.state} (${summary.verification.passed}/${summary.verification.total} passed)`,
+  );
+  if (summary.tester) {
+    console.log(
+      `Tester:    ${summary.tester.verdict ?? summary.tester.status} - ${summary.tester.findings} finding(s), ${summary.tester.blocking} blocking`,
+    );
+  }
   const ci = detail.artifacts.filter((artifact) => artifact.kind === 'ci').at(-1);
   if (ci) {
     const state = typeof ci.metadata?.state === 'string' ? ci.metadata.state : 'unknown';
@@ -498,10 +514,11 @@ function buildProgram(): Command {
     .description('show a task and its history')
     .action(async (id: string) => {
       const detail = await withStore((store) => store.getTaskDetail(id));
+      const summary = summarizeDetail(detail);
       if (globalOptions().json) {
-        printJson(detail);
+        printJson({ ...detail, summary });
       } else {
-        renderTaskDetail(detail);
+        renderTaskDetail(detail, summary);
       }
     });
 
@@ -765,6 +782,7 @@ function buildProgram(): Command {
     .option('--once', 'process at most one task and exit')
     .option('--interval <seconds>', 'idle poll interval', Number, 5)
     .option('--max-tasks <n>', 'stop after N tasks', Number)
+    .option('--concurrency <n>', 'tasks to run in parallel', Number, 1)
     .option('--harness <id>', 'developer harness adapter: fake, opencode, or auto')
     .option('--tester-harness <id>', 'tester harness adapter')
     .option('--max-iterations <n>', 'maximum tester rejections before failing', Number)
@@ -777,6 +795,7 @@ function buildProgram(): Command {
         once?: boolean;
         interval: number;
         maxTasks?: number;
+        concurrency: number;
         harness?: string;
         testerHarness?: string;
         maxIterations?: number;
@@ -801,7 +820,11 @@ function buildProgram(): Command {
           }
           if (!json) {
             const detail = entry.error ? ` (${entry.error})` : '';
-            console.log(`Task ${entry.taskId}: ${stateLabel(entry.taskState)}${detail}`);
+            const risk = entry.risk ? `, risk ${entry.risk}` : '';
+            const ci = entry.ciState ? `, ci ${entry.ciState}` : '';
+            console.log(
+              `Task ${entry.taskId}: ${stateLabel(entry.taskState)}${risk}${ci}${detail}`,
+            );
           }
         };
 
@@ -811,6 +834,7 @@ function buildProgram(): Command {
               once,
               intervalMs: options.interval * 1000,
               maxTasks: options.maxTasks,
+              concurrency: options.concurrency,
               harnessId: options.harness,
               testerHarnessId: options.testerHarness,
               maxIterations: options.maxIterations,
@@ -1049,6 +1073,76 @@ function buildProgram(): Command {
         });
       },
     );
+
+  program
+    .command('status')
+    .description('show the crew status: lease, task counts, and risk/CI summaries')
+    .option('--limit <n>', 'number of recent tasks to summarize', Number, 10)
+    .action(async (options: { limit: number }) => {
+      const limit = Math.max(1, Math.min(options.limit ?? 10, 100));
+      const status = await withStore((store) => {
+        const lease = store.getLease('daemon');
+        const tasks = store.listTasks();
+        const counts: Record<string, number> = {};
+        for (const task of tasks) {
+          counts[task.state] = (counts[task.state] ?? 0) + 1;
+        }
+        const recent = tasks.slice(0, limit).map((task) =>
+          summarizeDetail(store.getTaskDetail(task.id)),
+        );
+        return {
+          generated_at: new Date().toISOString(),
+          lease: lease
+            ? { ...lease, active: Date.parse(lease.expiresAt) > Date.now() }
+            : null,
+          counts,
+          total_tasks: tasks.length,
+          active_runs: store.listActiveRuns().length,
+          tasks: recent,
+        };
+      });
+      if (globalOptions().json) {
+        printJson(status);
+        return;
+      }
+      if (status.lease) {
+        console.log(
+          `Lease: ${status.lease.owner} (${status.lease.active ? 'active' : 'expired'}, expires ${status.lease.expiresAt})`,
+        );
+      } else {
+        console.log('Lease: none');
+      }
+      console.log(`Tasks: ${status.total_tasks}`);
+      for (const [state, count] of Object.entries(status.counts)) {
+        console.log(`  ${state}: ${count}`);
+      }
+      console.log(`Active runs: ${status.active_runs}`);
+      if (status.tasks.length > 0) {
+        console.log('\nRecent tasks:');
+        printTable(
+          status.tasks.map((summary) => ({
+            id: summary.taskId,
+            state: summary.state,
+            risk: summary.risk?.level ?? '-',
+            ci: summary.ci?.state ?? '-',
+            verify: summary.verification.state,
+            tester: summary.tester?.verdict ?? '-',
+            pr: summary.pr?.state ?? '-',
+            title: summary.title,
+          })),
+          [
+            { key: 'id', label: 'ID' },
+            { key: 'state', label: 'STATE' },
+            { key: 'risk', label: 'RISK' },
+            { key: 'ci', label: 'CI' },
+            { key: 'verify', label: 'VERIFY' },
+            { key: 'tester', label: 'TESTER' },
+            { key: 'pr', label: 'PR' },
+            { key: 'title', label: 'TITLE' },
+          ],
+        );
+      }
+    });
 
   program
     .command('doctor')

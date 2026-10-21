@@ -15,6 +15,7 @@ export interface RunVerificationOptions {
   tasksDir: string;
   env?: Record<string, string>;
   quiet?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface VerificationOutcome {
@@ -77,6 +78,7 @@ async function runVerificationCommand(
       logPath,
       timeoutMs: (options.timeoutSeconds ?? DEFAULT_VERIFY_TIMEOUT_SECONDS) * 1000,
       quiet: options.quiet ?? true,
+      signal: options.signal,
     });
     const durationMs = Date.now() - startedAt;
     const timedOut = result.timedOut;

@@ -80,7 +80,8 @@ Referencias: ADR 0006 a 0008.
 
 ## Fase 2 — Motor autónomo confiable
 
-Estado: **en curso**.
+Estado: **casi completada** (2.1–2.6 completadas; queda el robustez operativo
+de 2.7).
 
 Esta fase convierte el pipeline en una base fiable para que el capitán pueda
 delegar sin supervisión constante. El capitán no debe construirse sobre un motor
@@ -140,30 +141,46 @@ Referencia: ADR 0011.
 
 ### 2.5 Concurrencia y scheduler
 
-Estado: **pendiente**.
+Estado: **completada**.
 
-- El daemon podrá ejecutar N tareas en paralelo; por defecto N = 1 para preservar
-  el comportamiento actual.
-- Cada tarea conserva su worktree, rama, run y lease independientes.
-- El scheduler respeta prioridad, límites de concurrencia y recuperación.
-- Se prueban colisiones de estado, cancelación y reinicio del daemon.
+- `daemon run --concurrency <n>` ejecuta hasta N tareas en paralelo; por defecto
+  N = 1. `--once` mantiene el contrato de una sola tarea.
+- Cada tarea conserva su worktree, rama, run y lease `task:<id>` independientes.
+  El lease se renueva y se libera al terminar, también si el pipeline falla.
+- El scheduler respeta prioridad, `maxTasks`, concurrencia y cooldown ante
+  `TASK_LEASED`; las tareas no iniciadas permanecen `queued` al abortar.
+- La cancelación propaga `AbortSignal` a agentes, verificación y espera de CI.
+- Se prueban concurrencia, colisión de lease, cancelación y reinicio mediante
+  reconciliación.
+
+Referencia: ADR 0012.
 
 ### 2.6 Resumen de riesgo y estado
 
-Estado: **pendiente**.
+Estado: **completada**.
 
-- Clasificación de riesgo por cambio (bajo, medio, alto) con reglas explícitas.
-- Resumen reutilizable por CLI, daemon y capitán: riesgo, CI, verificación,
-  hallazgos del tester y estado del PR.
+- Clasificación de riesgo por cambio (bajo, medio, alto) con reglas explícitas
+  y deterministas: rutas sensibles, tamaño del cambio, churn, hallazgos del
+  tester, verificaciones y CI.
+- El pipeline registra el diff contra la rama base como artefacto `change`
+  (archivos, líneas y rutas tocadas).
+- Resumen reutilizable por CLI, daemon y capitán (`TaskSummary`): riesgo, CI,
+  verificación, hallazgos del tester y estado del PR.
+- `task show` incluye el resumen en JSON y texto; `crew status` resume lease,
+  conteo por estado, runs activos y las tareas recientes con riesgo y CI; el
+  daemon incluye riesgo y CI en el resultado de cada tarea procesada.
 - El riesgo no decide por sí solo: informa al capitán y a la política de merge.
+
+Referencia: ADR 0013.
 
 ### 2.7 Robustez operativa
 
 Estado: **en curso**.
 
 - Lease, heartbeat, reconciliación y `task retry` ya existen.
-- Pendiente: pulir cancelación, señales, reintentos y recuperación tras reinicio
-  en escenarios concurrentes.
+- Cancelación y señales cubren agentes, verificación y CI, también con N > 1.
+- Pendiente: backoff, reintentos automáticos y recuperación tras reinicio en
+  escenarios concurrentes.
 - El daemon como servicio del sistema queda para la Fase 4.
 
 ### Criterios de salida de la Fase 2
@@ -174,6 +191,9 @@ Estado: **en curso**.
   estado.
 - `crew status` o `task show` devuelve un resumen de riesgo y CI.
 - La suite completa y los e2e de concurrencia pasan de forma repetible.
+
+Los cinco criterios están cumplidos. Pendiente de 2.7: backoff, reintentos
+automáticos y recuperación tras reinicio en escenarios concurrentes.
 
 ## Fase 3 — Capitán conversacional
 
@@ -314,3 +334,4 @@ concurrencia.
 - ADR 0009: separación entre motor determinista y capa capitán.
 - ADR 0010: gate de CI con GitHub Actions.
 - ADR 0011: auto-merge con guardrails.
+- ADR 0012: scheduler concurrente del daemon.

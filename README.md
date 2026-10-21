@@ -38,8 +38,12 @@ Fases 0 y 1 completadas; Fase 2 en curso:
   exige PR mergeado salvo `--force`.
 - Harness `opencode` real, además del agente falso.
 - Detección de binarios, `--harness auto` y `crew harness list`.
-- Cola de tareas y daemon con lease único, heartbeat y parada ordenada.
+- Cola de tareas y daemon con lease único, heartbeat, concurrencia configurable
+  y parada ordenada.
 - Reconciliación de runs perdidos y `task retry` explícito.
+- Clasificación de riesgo por cambio con reglas explícitas y resumen reutilizable
+  (`task show` y `crew status`) con riesgo, CI, verificación, tester y estado del
+  PR.
 - Agente falso con escenarios de desarrollador y tester.
 - CLI con salida humana y `--json`.
 - Event log append-only y `doctor`.
@@ -119,7 +123,7 @@ crew task clean tsk_... --force
 | `crew harness list` | Lista harnesses, disponibilidad y capacidades |
 | `crew task create --project <ref> --title <t> (--brief <texto> \| --brief-file <path> \| --spec-file <path>) [--methodology free\|spec\|tdd] [--acceptance <texto>] [--non-goal <texto>] [--delivery local\|pr]` | Crea una tarea en `draft` |
 | `crew task list [--state <state>]` | Lista tareas |
-| `crew task show <id>` | Detalle, runs, reporte, mensajes, artefactos y eventos |
+| `crew task show <id>` | Detalle, runs, reporte, mensajes, artefactos, eventos y resumen de riesgo/CI |
 | `crew task run <id> [--harness <id>] [--tester-harness <id>] [--agent <n>] [--model <n>] [--tester-agent <n>] [--tester-model <n>] [--max-iterations <n>] [--delivery local\|pr] [--timeout <s>] [--env K=V] [--quiet]` | Ejecuta el pipeline en un worktree |
 | `crew task queue <id>` | Encola una tarea en `draft` para el daemon |
 | `crew task retry <id>` | Reencola una tarea `failed` |
@@ -128,8 +132,9 @@ crew task clean tsk_... --force
 | `crew task clean <id> [--force]` | Elimina el worktree; nunca borra la rama |
 | `crew task accept <id> [--force]` | Acepta una tarea en `review`; con `pr`, verifica que el PR esté mergeado |
 | `crew task reject <id> [motivo...] [--reason <texto>]` | Rechaza, guarda feedback y reencola al developer |
-| `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
+| `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
+| `crew status [--limit <n>]` | Resumen global: lease, conteo por estado, runs activos y tareas recientes con riesgo y CI |
 | `crew daemon reconcile [--stale-after <s>]` | Marca runs muertos como perdidos y falla sus tareas |
 | `crew report --task <id> --run <id> [--file <path\|->] [--status <s>] [--summary <t>]` | Registra un reporte |
 | `crew events [--task <id>] [--follow] [--limit <n>]` | Muestra el event log |
@@ -262,28 +267,40 @@ pnpm crew --json task accept tsk_...
 pnpm crew --json task accept tsk_... --force
 ```
 
-`auto_merge` y `scout` se rechazan explícitamente con `DELIVERY_UNSUPPORTED`.
+`auto_merge` se rige por el ADR 0011; `scout` se rechaza con
+`DELIVERY_UNSUPPORTED`.
 
 ## Daemon
 
-El daemon procesa tareas en estado `queued` de forma secuencial:
+El daemon procesa tareas en estado `queued`, una por defecto y hasta N con
+`--concurrency`:
 
 ```sh
 pnpm crew --json task queue tsk_...
 pnpm crew daemon run --harness fake --env CREW_FAKE_SCENARIO=success
+pnpm crew daemon run --concurrency 2 --max-tasks 4
 pnpm crew daemon status
 ```
 
 - Solo puede haber un daemon por base de datos. El lease (`leases`) incluye
   owner `host:pid`, TTL y heartbeat; si está ocupado, falla con `DAEMON_RUNNING`.
+- Cada tarea mantiene su worktree, rama, run y lease `task:<id>`. Si otro
+  proceso ya la está ejecutando, el daemon la deja en cola con un cooldown y
+  sigue con la siguiente; un `task run` manual tampoco puede duplicarla.
+- El scheduler respeta prioridad, `--max-tasks` (tareas lanzadas),
+  `--concurrency` y `--once` (fuerza una tarea). Las tareas no iniciadas siguen
+  `queued` cuando el daemon se detiene.
 - En cada ciclo reconcilia runs activos: si el PID ya no existe (o nunca se
   registró y superó `--stale-after`), marca el run como `lost` y la tarea como
   `failed` con el motivo. `crew task retry <id>` la reencola.
 - `--once` procesa como mucho una tarea y sale; sin tareas termina con
   `stopped: idle`.
-- `SIGINT`/`SIGTERM` paran el bucle, terminan el grupo de proceso del agente
-  activo y esperan a que se registre el fallo. La tarea queda `failed` y se puede
-  reintentar.
+- `SIGINT`/`SIGTERM` paran el bucle, terminan el grupo de proceso de todos los
+  agentes activos, cancelan verificación y espera de CI, y esperan a que se
+  registre el fallo. Las tareas afectadas quedan `failed` y se pueden reintentar.
+
+El orden de finalización con `--concurrency` mayor que 1 no tiene por qué
+coincidir con el orden de la cola.
 
 El daemon ejecuta las tareas en el mismo proceso que supervisa. Si el daemon
 muere de forma abrupta, el agente puede quedar huérfano; al siguiente arranque,
@@ -331,6 +348,39 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## Riesgo y resumen de estado
+
+Después de cada commit, `crew` registra el diff contra la rama base (archivos,
+líneas y rutas tocadas) como artefacto `change`. Con esos datos y las señales de
+la tarea (hallazgos del tester, verificaciones y CI) calcula una
+clasificación de riesgo determinista:
+
+| Nivel | Puntuación |
+|---|---|
+| `low` | menos de 2 puntos |
+| `medium` | 2 o 3 puntos |
+| `high` | 4 puntos o más |
+
+Cada regla suma puntos: rutas sensibles (autenticación, migraciones,
+infraestructura, CI) +4, manifiestos de dependencias +2, tamaño del cambio
+(+2/+3 por más de 5/20 archivos), churn (+1/+2 por más de 100/500 líneas),
+avisos del tester (+2/+3), hallazgo bloqueante +4, verificación fallida +2 y
+CI fallido +2. El resumen incluye siempre los motivos.
+
+El riesgo informa, no decide: el merge sigue exigiendo tester aprobado,
+verificaciones en verde y CI en verde.
+
+```sh
+# Resumen de una tarea
+pnpm crew --json task show tsk_... | jq '.summary'
+
+# Vista global
+pnpm crew status --limit 5
+```
+
+El resumen (`TaskSummary`) es el mismo que consumen la CLI, el daemon y el
+capitán. Ver ADR 0013.
 
 ## Arquitectura
 

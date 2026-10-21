@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { generateBrief } from '../brief/brief';
-import { errorMessage } from '../core/errors';
+import { CrewError, errorMessage } from '../core/errors';
 import { newId } from '../core/ids';
 import { redactDeep } from '../core/redact';
 import { slugify } from '../core/slug';
@@ -43,6 +43,7 @@ export interface RunStageOptions {
   timeoutSeconds?: number;
   env: Record<string, string>;
   quiet?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface RunStageResult {
@@ -65,6 +66,12 @@ export async function runStage(
   }
   if (store.getActiveRun(initialTask.id)) {
     throw new Error(`Task ${initialTask.id} already has an active run`);
+  }
+  if (options.signal?.aborted) {
+    throw new CrewError(
+      'RUN_ABORTED',
+      `Task ${initialTask.id} was aborted before starting ${options.role ?? 'developer'}`,
+    );
   }
 
   const role: AgentRole = options.role ?? 'developer';
@@ -209,6 +216,7 @@ export async function runStage(
       timeoutMs: timeoutSeconds * 1000,
       stdin: brief,
       quiet: options.quiet,
+      signal: options.signal,
       onSpawn: (pid) => {
         store.markRunRunning(run.id, pid);
       },

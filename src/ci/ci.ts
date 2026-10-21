@@ -34,6 +34,7 @@ export interface CiGateOptions {
   commitSha: string;
   timeoutSeconds?: number;
   intervalSeconds?: number;
+  signal?: AbortSignal;
 }
 
 export interface CiEvaluation {
@@ -201,9 +202,22 @@ export function listCiChecks(
   });
 }
 
-function sleep(ms: number): Promise<void> {
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
-    setTimeout(resolve, ms);
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const done = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener('abort', done, { once: true });
+    if (signal?.aborted) {
+      done();
+    }
   });
 }
 
@@ -220,6 +234,17 @@ export async function waitForCiGate(
   let checks: CiCheck[] = [];
 
   while (true) {
+    if (options.signal?.aborted) {
+      return {
+        provider: 'github_actions',
+        state: 'error',
+        summary: 'CI wait aborted',
+        url: options.prUrl,
+        checks,
+        durationMs: Date.now() - startedAt,
+        error: 'CI_ABORTED',
+      };
+    }
     checks = listCiChecks(options.cwd, options.prUrl, options.commitSha);
     const evaluation = evaluateCiChecks(checks);
 

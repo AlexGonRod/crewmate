@@ -19,6 +19,7 @@ export interface RunProcessOptions {
   timeoutMs: number;
   stdin?: string;
   quiet?: boolean;
+  signal?: AbortSignal;
   onSpawn?: (pid: number) => void;
 }
 
@@ -61,6 +62,7 @@ export function runProcess(options: RunProcessOptions): Promise<ProcessResult> {
     timeoutMs,
     stdin,
     quiet = false,
+    signal,
     onSpawn,
   } = options;
 
@@ -71,6 +73,7 @@ export function runProcess(options: RunProcessOptions): Promise<ProcessResult> {
   let outputTail = '';
   let timedOut = false;
   let settled = false;
+  let killTimer: NodeJS.Timeout | null = null;
 
   const writeLog = (stream: string, line: string): void => {
     log.write(`${JSON.stringify({ ts: new Date().toISOString(), stream, line })}\n`);
@@ -148,18 +151,42 @@ export function runProcess(options: RunProcessOptions): Promise<ProcessResult> {
             timedOut = true;
             writeLog('crew', `process timed out after ${timeoutMs}ms`);
             killTree(child, 'SIGTERM');
-            const killTimer = setTimeout(() => killTree(child, 'SIGKILL'), 2000);
+            if (killTimer) {
+              clearTimeout(killTimer);
+            }
+            killTimer = setTimeout(() => killTree(child, 'SIGKILL'), 2000);
             killTimer.unref();
           }, timeoutMs)
         : null;
+
+    const onAbort = (): void => {
+      if (settled) {
+        return;
+      }
+      writeLog('crew', 'process aborted');
+      killTree(child, 'SIGTERM');
+      if (killTimer) {
+        clearTimeout(killTimer);
+      }
+      killTimer = setTimeout(() => killTree(child, 'SIGKILL'), 2000);
+      killTimer.unref();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+    }
 
     const settle = (result: ProcessResult): void => {
       if (settled) {
         return;
       }
       settled = true;
+      signal?.removeEventListener('abort', onAbort);
       if (timer) {
         clearTimeout(timer);
+      }
+      if (killTimer) {
+        clearTimeout(killTimer);
       }
       writeLog('crew', `process exited: code=${result.exitCode} signal=${result.signal} timed_out=${result.timedOut}`);
       log.end();
@@ -171,8 +198,12 @@ export function runProcess(options: RunProcessOptions): Promise<ProcessResult> {
         return;
       }
       settled = true;
+      signal?.removeEventListener('abort', onAbort);
       if (timer) {
         clearTimeout(timer);
+      }
+      if (killTimer) {
+        clearTimeout(killTimer);
       }
       writeLog('crew', `process error: ${error.message}`);
       log.end();

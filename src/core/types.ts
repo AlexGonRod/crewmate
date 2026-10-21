@@ -59,6 +59,56 @@ export interface CiResult {
   error?: string;
 }
 
+export type RiskLevel = 'low' | 'medium' | 'high';
+
+export interface ChangeStats {
+  files: number;
+  additions: number;
+  deletions: number;
+  paths: string[];
+}
+
+export interface RiskAssessment {
+  level: RiskLevel;
+  score: number;
+  reasons: string[];
+  change: ChangeStats;
+}
+
+export interface TaskSummary {
+  taskId: string;
+  title: string;
+  state: TaskState;
+  stage: PipelineStage;
+  deliveryMode: DeliveryMode;
+  risk: RiskAssessment | null;
+  verification: {
+    state: 'passed' | 'failed' | 'none';
+    passed: number;
+    failed: number;
+    total: number;
+  };
+  ci: {
+    state: CiState;
+    summary: string;
+    url: string;
+  } | null;
+  tester: {
+    verdict: ReportVerdict | null;
+    status: ReportStatus;
+    findings: number;
+    blocking: number;
+    warnings: number;
+    summary: string;
+  } | null;
+  pr: {
+    url: string;
+    state: 'open' | 'merged' | 'merge_failed' | 'unknown';
+  } | null;
+  commitSha: string | null;
+  updatedAt: string;
+}
+
 export type MergeMethod = 'merge' | 'squash' | 'rebase';
 
 export type MergeState = 'merged' | 'failed';
@@ -252,6 +302,7 @@ export interface TaskDetail {
   project: Project | null;
   runs: Run[];
   report: Report | null;
+  reports: Report[];
   messages: Message[];
   artifacts: Artifact[];
   verifications: VerificationResult[];

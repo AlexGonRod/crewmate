@@ -1,5 +1,9 @@
 # ADR 0006: Daemon con lease y reconciliación de runs
 
+> Actualizado por ADR 0012: el daemon puede ejecutar N tareas en paralelo. El
+> lease global, la cola y la reconciliación se mantienen; la ejecución ya no es
+> necesariamente secuencial.
+
 ## Contexto
 
 La Fase 1 necesita ejecutar tareas en cola sin intervención manual y detectar
@@ -13,10 +17,10 @@ comandos CLI pueden compartir la misma base de datos.
   `host:pid`, el TTL por defecto es 30 s y se renueva con un heartbeat cada
   `TTL/3`, también durante tareas largas. Si el lease está ocupado, se falla con
   `DAEMON_RUNNING`.
-- **Ejecución secuencial en proceso**: el daemon toma la siguiente tarea
-  `queued` (prioridad descendente, `created_at` ascendente) y llama a `runPipeline`
-  dentro del mismo proceso. El agente sigue corriendo en su propio grupo de
-  procesos y su PID queda registrado en `runs`.
+- **Ejecución en proceso**: originalmente secuencial; desde el ADR 0012 el
+  daemon toma hasta N tareas `queued` (prioridad descendente, `created_at`
+  ascendente) y llama a `runPipeline` dentro del mismo proceso. El agente sigue
+  corriendo en su propio grupo de procesos y su PID queda registrado en `runs`.
 - **Cola explícita**: `task create` deja la tarea en `draft`; `task queue` la
   pasa a `queued`. Un fallo de arranque del daemon (`runPipeline` lanza) marca la
   tarea como `failed` para evitar un bucle de reintentos.

@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import { CrewError, errorMessage } from '../core/errors';
 import type {
   CiResult,
@@ -9,10 +10,12 @@ import type {
   Task,
   VerificationResult,
 } from '../core/types';
+import { newId } from '../core/ids';
 import type { ResolvedContext } from '../config/config';
 import { readProjectConfig } from '../config/config';
 import type { Store } from '../store/store';
 import { commitWorktree, pushBranch } from '../git/commit';
+import { diffStats } from '../git/diff';
 import {
   assertGhReady,
   createPullRequest,
@@ -52,6 +55,7 @@ export interface PipelineOptions {
   timeoutSeconds?: number;
   env?: Record<string, string>;
   quiet?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface PipelineResult {
@@ -87,7 +91,37 @@ function isUnsupportedDelivery(mode: DeliveryMode): boolean {
   return mode === 'scout';
 }
 
+const TASK_LEASE_TTL_SECONDS = 30;
+const TASK_LEASE_HEARTBEAT_MS = 10_000;
+
 export async function runPipeline(
+  store: Store,
+  context: ResolvedContext,
+  options: PipelineOptions,
+): Promise<PipelineResult> {
+  const resource = `task:${options.taskId}`;
+  const owner = `${hostname()}:${process.pid}:${newId('worker')}`;
+  if (!store.acquireLease(resource, owner, TASK_LEASE_TTL_SECONDS)) {
+    const held = store.getLease(resource);
+    throw new CrewError(
+      'TASK_LEASED',
+      `Task ${options.taskId} is already being executed by ${held?.owner ?? 'another process'}`,
+    );
+  }
+  const heartbeat = setInterval(
+    () => store.renewLease(resource, owner, TASK_LEASE_TTL_SECONDS),
+    TASK_LEASE_HEARTBEAT_MS,
+  );
+  heartbeat.unref();
+  try {
+    return await runPipelineLocked(store, context, options);
+  } finally {
+    clearInterval(heartbeat);
+    store.releaseLease(resource, owner);
+  }
+}
+
+async function runPipelineLocked(
   store: Store,
   context: ResolvedContext,
   options: PipelineOptions,
@@ -214,6 +248,7 @@ export async function runPipeline(
       verifyCommands,
       agent: developerAgent,
       model: developerModel,
+      signal: options.signal,
     });
     task = developer.task;
     developerReport = developer.report;
@@ -268,6 +303,7 @@ export async function runPipeline(
           projectConfig?.verify_timeout_seconds ?? DEFAULT_VERIFY_TIMEOUT_SECONDS,
         tasksDir: context.paths.tasksDir,
         env: options.env ?? {},
+        signal: options.signal,
       });
       verifications = outcomes.map((outcome) =>
         store.recordVerification({
@@ -280,6 +316,9 @@ export async function runPipeline(
         (verification) => verification.state !== 'passed',
       );
       if (failed.length > 0) {
+        if (options.signal?.aborted) {
+          throw new CrewError('TASK_ABORTED', 'Task aborted during verification');
+        }
         task = store.rejectReview(
           task.id,
           verificationFeedback(failed),
@@ -315,6 +354,7 @@ export async function runPipeline(
       verifyCommands,
       agent: testerAgent,
       model: testerModel,
+      signal: options.signal,
     });
     task = tester.task;
     testerReport = tester.report;
@@ -363,11 +403,20 @@ export async function runPipeline(
       };
     }
 
+    if (options.signal?.aborted) {
+      throw new CrewError('TASK_ABORTED', 'Task aborted before delivery');
+    }
+
     const commit = commitWorktree(
       task.worktreePath ?? project.rootPath,
       `crew: ${task.title}`,
     );
     task = store.recordCommit(task.id, commit.sha);
+
+    const change = diffStats(task.worktreePath ?? project.rootPath, task.baseBranch);
+    if (change) {
+      task = store.recordChangeStats(task.id, change);
+    }
 
     if (requiresGithubDelivery(delivery)) {
       const branch = task.branch ?? currentBranch(project.rootPath);
@@ -390,6 +439,7 @@ export async function runPipeline(
             projectConfig.ci.timeout_seconds ?? DEFAULT_CI_TIMEOUT_SECONDS,
           intervalSeconds:
             projectConfig.ci.interval_seconds ?? DEFAULT_CI_INTERVAL_SECONDS,
+          signal: options.signal,
         });
         task = store.recordCiCheck(task.id, ci);
         if (ci.state !== 'passed') {
@@ -412,6 +462,9 @@ export async function runPipeline(
       }
 
       if (delivery === 'auto_merge') {
+        if (options.signal?.aborted) {
+          throw new CrewError('TASK_ABORTED', 'Task aborted before merge');
+        }
         task = store.requestReview(task.id);
         const policy = projectConfig?.auto_merge;
         if (!policy) {
