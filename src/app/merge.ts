@@ -1,5 +1,5 @@
 import { CrewError } from '../core/errors';
-import { mergePullRequest, viewPullRequest } from '../git/forge';
+import { getForge } from '../forges';
 import type {
   CiResult,
   MergeMethod,
@@ -138,18 +138,20 @@ export function mergeTask(
     authorizedBy: string;
     skipMerge?: boolean;
     livePr?: boolean;
+    forge?: string | null;
   },
 ): MergeOutcome {
   const detail = store.getTaskDetail(taskId);
   const { task } = detail;
 
   let pr: MergeDecision['pr'] = null;
+  const forge = getForge(options.forge ?? detail.project?.forge ?? 'github');
   if (
     (task.deliveryMode === 'pr' || task.deliveryMode === 'auto_merge') &&
     task.prUrl &&
     options.livePr !== false
   ) {
-    const info = viewPullRequest(options.projectRootPath, task.prUrl);
+    const info = forge.viewPullRequest(options.projectRootPath, task.prUrl);
     pr = {
       url: info.url,
       state: info.state,
@@ -186,7 +188,7 @@ export function mergeTask(
 
   let merge: MergeResult;
   try {
-    const info = mergePullRequest({
+    const info = forge.mergePullRequest({
       cwd: options.projectRootPath,
       url: pr.url,
       method: options.method,

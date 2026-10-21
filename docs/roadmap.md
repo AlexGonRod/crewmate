@@ -338,7 +338,10 @@ Estado: **en curso** (4.1 completada).
   con un informe `crew.report/v3` guardado como artefacto `scout`, y
   `crew scout` lo crea en una línea.
 - UI web o servicio del sistema.
-- Soporte de más forges además de GitHub.
+- Soporte de más forges además de GitHub. **Completada** (ADR 0024): una
+  interfaz `Forge` con implementaciones de GitHub (`gh`) y GitLab (`glab`);
+  el motor, el merge conversacional y `task accept` ya no hablan con `gh`
+  directamente. El gate de CI sigue siendo de GitHub Actions.
 
 ## Dependencias
 

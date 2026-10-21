@@ -17,12 +17,7 @@ import type { Store } from '../store/store';
 import { commitWorktree, pushBranch } from '../git/commit';
 import { diffStats } from '../git/diff';
 import { isRetryableError } from './retry';
-import {
-  assertGhReady,
-  createPullRequest,
-  mergePullRequest,
-  viewPullRequest,
-} from '../git/forge';
+import { getForge } from '../forges';
 import {
   DEFAULT_CI_INTERVAL_SECONDS,
   DEFAULT_CI_TIMEOUT_SECONDS,
@@ -85,7 +80,7 @@ function outcomeFor(task: Task): PipelineOutcome {
   return 'failed';
 }
 
-function requiresGithubDelivery(mode: DeliveryMode): boolean {
+function requiresForgeDelivery(mode: DeliveryMode): boolean {
   return mode === 'pr' || mode === 'auto_merge';
 }
 
@@ -149,14 +144,16 @@ async function runPipelineLocked(
     context.config.agents.tester.harness ??
     task.harnessId ??
     context.config.harness;
-  if (requiresGithubDelivery(delivery)) {
-    if (project.forge !== 'github') {
+  let forge: ReturnType<typeof getForge> | null = null;
+  if (requiresForgeDelivery(delivery)) {
+    if (!project.forge) {
       throw new CrewError(
         'FORGE_UNSUPPORTED',
-        `Delivery mode "${delivery}" requires a GitHub remote; found ${project.forge ?? 'none'}`,
+        `Delivery mode "${delivery}" requires a remote; found none`,
       );
     }
-    assertGhReady(project.rootPath);
+    forge = getForge(project.forge);
+    forge.assertReady(project.rootPath);
   }
   if (delivery === 'auto_merge') {
     if (!projectConfig?.auto_merge) {
@@ -431,10 +428,10 @@ async function runPipelineLocked(
       task = store.recordChangeStats(task.id, change);
     }
 
-    if (requiresGithubDelivery(delivery)) {
+    if (requiresForgeDelivery(delivery)) {
       const branch = task.branch ?? currentBranch(project.rootPath);
       pushBranch(project.rootPath, branch);
-      const pullRequest = createPullRequest({
+      const pullRequest = (forge as NonNullable<typeof forge>).createPullRequest({
         cwd: project.rootPath,
         base: task.baseBranch,
         head: branch,
@@ -444,6 +441,12 @@ async function runPipelineLocked(
       task = store.recordPullRequest(task.id, pullRequest.url);
 
       if (projectConfig?.ci) {
+        if (project.forge !== 'github') {
+          throw new CrewError(
+            'CI_PROVIDER_UNSUPPORTED',
+            `The CI gate uses GitHub Actions; the project forge is ${project.forge}`,
+          );
+        }
         ci = await waitForCiGate({
           cwd: project.rootPath,
           prUrl: pullRequest.url,
@@ -489,7 +492,7 @@ async function runPipelineLocked(
         const method = policy.method;
         const deleteBranch = policy.delete_branch ?? false;
         try {
-          mergePullRequest({
+          (forge as NonNullable<typeof forge>).mergePullRequest({
             cwd: project.rootPath,
             url: pullRequest.url,
             method,
@@ -506,7 +509,10 @@ async function runPipelineLocked(
         } catch (error) {
           let prState = 'UNKNOWN';
           try {
-            prState = viewPullRequest(project.rootPath, pullRequest.url).state;
+            prState = (forge as NonNullable<typeof forge>).viewPullRequest(
+              project.rootPath,
+              pullRequest.url,
+            ).state;
           } catch {
             // Keep UNKNOWN when the PR state cannot be read after a merge failure.
           }

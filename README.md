@@ -34,8 +34,8 @@ Fases 0, 1 y 2 completadas:
 - Gate de CI de GitHub Actions antes de pasar a `review`, con resultado durable.
 - Rechazo del tester o de la verificación con feedback y límite configurable de
   iteraciones.
-- Entrega `local`, `pr` o `auto_merge` (GitHub mediante `gh`); `task accept`
-  exige PR mergeado salvo `--force`.
+- Entrega `local`, `pr` o `auto_merge` (GitHub con `gh`, GitLab con `glab`);
+  `task accept` exige el PR/MR mergeado salvo `--force`.
 - Harness `opencode` real, además del agente falso.
 - Detección de binarios, `--harness auto` y `crew harness list`.
 - Cola de tareas y daemon con lease único, heartbeat, concurrencia configurable
@@ -393,6 +393,23 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## Forjas
+
+El motor habla con las forjas tras una interfaz común:
+
+| Forja | CLI | Estado |
+|---|---|---|
+| GitHub | `gh` | PR: push, creación, gate de CI y auto-merge |
+| GitLab | `glab` | MR: push, creación y merge; el gate de CI sigue siendo de GitHub Actions |
+
+La forja se deduce del remote del proyecto (`github.com`, `gitlab.com`). Un
+proyecto GitLab puede entregar con `--delivery pr`: push, merge request,
+aceptación tras el merge y merge conversacional. Un proyecto con `ci`
+configurado y una forja no compatible falla con `CI_PROVIDER_UNSUPPORTED` en
+lugar de saltarse el gate.
+
+Ver ADR 0024.
 
 ## Sesiones visibles
 

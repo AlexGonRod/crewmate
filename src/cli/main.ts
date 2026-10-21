@@ -31,7 +31,7 @@ import type {
 } from '../core/types';
 import { runDoctor } from '../doctor/doctor';
 import { removeWorktree } from '../git/worktree';
-import { viewPullRequest } from '../git/forge';
+import { getForge } from '../forges';
 import {
   normalizeReport,
   parseReportText,
@@ -610,6 +610,7 @@ function buildProgram(): Command {
           }
           return mergeTask(store, id, {
             projectRootPath: project.rootPath,
+            forge: project.forge,
             method,
             deleteBranch: options.deleteBranch ?? projectConfig?.auto_merge?.delete_branch,
             authorizedBy: options.by,
@@ -757,7 +758,10 @@ function buildProgram(): Command {
           if (!task.prUrl) {
             throw new CrewError('PR_REQUIRED', `Task ${id} has no pull request to verify`);
           }
-          const pullRequest = viewPullRequest(project.rootPath, task.prUrl);
+          const pullRequest = getForge(project.forge).viewPullRequest(
+            project.rootPath,
+            task.prUrl,
+          );
           if (!pullRequest.merged) {
             throw new CrewError(
               'PR_NOT_MERGED',
