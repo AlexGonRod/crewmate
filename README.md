@@ -43,6 +43,8 @@ Fases 0, 1 y 2 completadas:
 - Reintentos automáticos con backoff exponencial y recuperación de runs
   perdidos tras reinicio.
 - Reconciliación de runs perdidos y `task retry` explícito.
+- Los leases de procesos muertos se pueden tomar de inmediato: un daemon que
+  muere no bloquea el siguiente más de un instante.
 - Clasificación de riesgo por cambio con reglas explícitas y resumen reutilizable
   (`task show` y `crew status`) con riesgo, CI, verificación, tester y estado del
   PR.
@@ -385,6 +387,14 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## Demo de aceptación
+
+El flujo completo de la Fase 3 está automatizado en
+`test/e2e/acceptance.test.ts`: plan con dos tareas, workers en worktrees
+aislados y en paralelo, informe con riesgo y CI, merge conversacional y
+recuperación tras matar el daemon a mitad del flujo (la tarea se reencola y se
+completa).
 
 ## Merge conversacional
 

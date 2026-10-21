@@ -299,19 +299,25 @@ Referencia: ADR 0019.
 
 ### 3.6 Demo de aceptación
 
-Estado: **pendiente**.
+Estado: **completada** (con el agente falso; el mismo flujo con `opencode`
+real es el último paso manual de la fase).
 
-La Fase 3 se considera cerrada cuando este flujo funciona de extremo a extremo
-con el agente falso y, después, con `opencode` real:
+La demo está automatizada en `test/e2e/acceptance.test.ts` y recorre el flujo
+completo:
 
-1. El usuario proporciona un repositorio de GitHub y dos cambios.
+1. El usuario proporciona un repositorio y dos cambios.
 2. El capitán comprueba el toolchain y pide consentimiento si falta algo.
 3. Clona y registra el proyecto.
-4. Crea dos tareas con criterios de aceptación.
-5. Ejecuta los workers en worktrees aislados.
-6. Reporta cada PR con riesgo y estado de CI.
+4. Crea dos tareas con criterios de aceptación (un plan).
+5. Ejecuta los workers en worktrees aislados, en paralelo.
+6. Reporta cada tarea con riesgo y estado de CI.
 7. El usuario dice “mergea” y el capitán aplica la política correcta.
 8. Un reinicio a mitad del flujo no pierde tareas ni decisiones.
+
+Además, `Store.acquireLease` toma el lease de un proceso muerto (mismo host),
+así que un daemon que muere se recupera sin esperar al TTL.
+
+Referencia: ADR 0020.
 
 ## Fase 4 — Runtime visible y escala
 

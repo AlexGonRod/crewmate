@@ -1,3 +1,4 @@
+import { hostname } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runDaemon, type DaemonExecutor } from '../../src/app/daemon';
 import { runPipeline, type PipelineResult } from '../../src/app/pipeline';
@@ -157,6 +158,23 @@ describe('leases', () => {
     expect(store.releaseLease('daemon', 'host:1')).toBe(false);
     expect(store.releaseLease('daemon', 'host:2')).toBe(true);
     expect(store.getLease('daemon')).toBeNull();
+  });
+
+  it('takes over a lease whose holder process is dead', () => {
+    const store = createStore();
+    const deadPid = 999_999;
+    const owner = `${hostname()}:${deadPid}`;
+
+    expect(store.acquireLease('daemon', owner, 30)).not.toBeNull();
+    const taken = store.acquireLease('daemon', `${hostname()}:${process.pid}`, 30);
+    expect(taken?.owner).toBe(`${hostname()}:${process.pid}`);
+  });
+
+  it('does not take over a lease held by a live process', () => {
+    const store = createStore();
+    const owner = `${hostname()}:${process.pid}`;
+    expect(store.acquireLease('daemon', owner, 30)).not.toBeNull();
+    expect(store.acquireLease('daemon', `${hostname()}:999999`, 30)).toBeNull();
   });
 });
 

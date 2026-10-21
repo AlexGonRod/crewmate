@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { hostname } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { CrewError } from '../core/errors';
@@ -206,6 +207,22 @@ function toTask(row: TaskRow): Task {
     updatedAt: row.updated_at,
     finishedAt: row.finished_at,
   };
+}
+
+function leaseHolderIsDead(lease: Lease, now = Date.now()): boolean {
+  if (Date.parse(lease.expiresAt) <= now) {
+    return true;
+  }
+  const parts = lease.owner.split(':');
+  if (parts.length < 2) {
+    return false;
+  }
+  const host = parts[0] as string;
+  const pid = Number(parts[1]);
+  if (host !== hostname() || !Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+  return !isPidAlive(pid);
 }
 
 function toRun(row: RunRow): Run {
@@ -1925,9 +1942,20 @@ export class Store {
     ttlSeconds: number,
     now = Date.now(),
   ): Lease | null {
+    const held = this.getLease(resource);
+    if (held) {
+      const expired = Date.parse(held.expiresAt) <= now;
+      const holderDead = leaseHolderIsDead(held, now);
+      if (!expired && !holderDead) {
+        return null;
+      }
+      if (!expired) {
+        this.db.prepare('DELETE FROM leases WHERE resource = ?').run(resource);
+      }
+    }
     const acquiredAt = new Date(now).toISOString();
     const expiresAt = new Date(now + Math.max(1, ttlSeconds) * 1000).toISOString();
-    const result = this.db
+    this.db
       .prepare(
         `INSERT INTO leases (resource, owner, acquired_at, expires_at, heartbeat_at)
          VALUES (?, ?, ?, ?, ?)
@@ -1935,13 +1963,9 @@ export class Store {
            owner = excluded.owner,
            acquired_at = excluded.acquired_at,
            expires_at = excluded.expires_at,
-           heartbeat_at = excluded.heartbeat_at
-         WHERE leases.expires_at <= excluded.acquired_at`,
+           heartbeat_at = excluded.heartbeat_at`,
       )
       .run(resource, owner, acquiredAt, expiresAt, acquiredAt);
-    if (Number(result.changes) === 0) {
-      return null;
-    }
     return this.getLease(resource);
   }
 
