@@ -31,7 +31,14 @@ import { detectHarness } from '../adapters/harness/detect';
 import { listHarnessAdapters } from '../adapters/harness/registry';
 import { runPipeline } from '../app/pipeline';
 import { summarizeDetail } from '../app/summary';
-import { loadContext, readProjectConfig, type ResolvedContext } from '../config/config';
+import {
+  globalConfigPath,
+  loadContext,
+  readGlobalConfigFile,
+  readProjectConfig,
+  writeGlobalConfigValue,
+  type ResolvedContext,
+} from '../config/config';
 import { CrewError, errorMessage } from '../core/errors';
 import { isPidAlive, terminateProcessTree } from '../core/process';
 import { redactDeep } from '../core/redact';
@@ -52,6 +59,7 @@ import {
   resolveWorkspace,
 } from '../app/workspace';
 import { answerTaskInEditor, reviewTask } from '../app/review-flow';
+import { openInEditor } from '../app/editor';
 import { getForge } from '../forges';
 import {
   normalizeReport,
@@ -148,6 +156,27 @@ export function parseSessionMode(value?: string): SessionMode | undefined {
     'INVALID_SESSION_MODE',
     `Unknown session mode: ${value}. Use tmux, herdr or auto.`,
   );
+}
+
+const GUIDE_CANDIDATES = [
+  new URL('../docs/guide.md', import.meta.url),
+  new URL('../../docs/guide.md', import.meta.url),
+  new URL('../../../docs/guide.md', import.meta.url),
+];
+
+export function guideFilePath(): string {
+  const found = GUIDE_CANDIDATES.find((candidate) => existsSync(candidate));
+  return found ? fileURLToPath(found) : fileURLToPath(GUIDE_CANDIDATES[0] as URL);
+}
+
+function parseConfigValue(value: string): string | number | boolean {
+  if (value === 'true' || value === 'false') {
+    return value === 'true';
+  }
+  if (/^-?\d+(\.\d+)?$/.test(value)) {
+    return Number(value);
+  }
+  return value;
 }
 
 function sessionStateDir(): string {
@@ -1535,7 +1564,7 @@ function buildProgram(): Command {
 
   const sessions = program
     .command('sessions')
-    .description('list the visible agent sessions (tmux)');
+    .description('list the visible agent sessions (tmux or herdr)');
 
   sessions
     .command('list')
@@ -2085,6 +2114,83 @@ function buildProgram(): Command {
       }
     },
     );
+
+  const config = program
+    .command('config')
+    .description('inspect and change the global crew configuration');
+
+  config
+    .command('show')
+    .description('show the effective global configuration')
+    .action(() => {
+      const context = loadContext({ dbPath: globalOptions().db });
+      const file = readGlobalConfigFile(context.paths.configDir);
+      if (globalOptions().json) {
+        printJson({
+          path: globalConfigPath(context.paths.configDir),
+          file,
+          effective: context.config,
+        });
+        return;
+      }
+      console.log(`path: ${globalConfigPath(context.paths.configDir)}`);
+      console.log(`\nfile:`);
+      console.log(
+        Object.keys(file).length > 0
+          ? JSON.stringify(file, null, 2)
+          : '(empty: the defaults are used)',
+      );
+      console.log(`\neffective:`);
+      console.log(JSON.stringify(context.config, null, 2));
+    });
+
+  config
+    .command('set <key> <value>')
+    .description('set a value in the global configuration')
+    .action((key: string, value: string) => {
+      const context = loadContext({ dbPath: globalOptions().db });
+      const parsed = parseConfigValue(value);
+      const result = writeGlobalConfigValue(
+        context.paths.configDir,
+        key as Parameters<typeof writeGlobalConfigValue>[1],
+        parsed,
+      );
+      if (globalOptions().json) {
+        printJson(result);
+        return;
+      }
+      console.log(`${result.key} = ${String(result.value)}`);
+      console.log(`written to ${result.path}`);
+    });
+
+  config
+    .command('path')
+    .description('print the path of the global configuration')
+    .action(() => {
+      const context = loadContext({ dbPath: globalOptions().db });
+      const file = globalConfigPath(context.paths.configDir);
+      if (globalOptions().json) {
+        printJson({ path: file });
+        return;
+      }
+      console.log(file);
+    });
+
+  program
+    .command('guide')
+    .description('show where the usage guide is, and open it')
+    .option('--open', 'open the guide in your editor')
+    .action((options: { open?: boolean }) => {
+      const guidePath = guideFilePath();
+      if (globalOptions().json) {
+        printJson({ path: guidePath, exists: existsSync(guidePath) });
+        return;
+      }
+      console.log(guidePath);
+      if (options.open) {
+        openInEditor(guidePath);
+      }
+    });
 
   program
     .command('doctor')

@@ -81,6 +81,11 @@ La separación entre motor y capitán está registrada en el
 - pnpm solo para desarrollo.
 - tmux (opcional, para fases posteriores).
 
+## Guía
+
+La ruta corta para working con él: [`docs/guide.md`](docs/guide.md). Con la CLI
+instalada: `crew guide` (o `crew guide --open` para abrirla en tu editor).
+
 ## Instalación
 
 Global desde npm:

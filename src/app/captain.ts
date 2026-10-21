@@ -41,6 +41,11 @@ crew --json memory list --project <ref>
 La memoria se incluye en el brief de cada agente: úsala antes de inventar
 convenciones nuevas y actualízala cuando una decisión cambie.
 
+## Guía
+
+La guía de uso del proyecto está en \`docs/guide.md\` (o con
+\`crew guide\`). Consúltala si la persona pregunta cómo hacer algo.
+
 ## Comandos habituales
 
 \`\`\`sh

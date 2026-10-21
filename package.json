@@ -40,6 +40,7 @@
   "files": [
     "dist",
     "contracts",
+    "docs",
     "test/fake-agent",
     "README.md",
     "LICENSE"

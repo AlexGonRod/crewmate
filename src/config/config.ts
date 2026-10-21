@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 import { CrewError } from '../core/errors';
 import type {
   CiProvider,
@@ -139,6 +139,71 @@ function readGlobalConfig(configDir: string): Partial<CrewConfig> {
       `Could not read ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+}
+
+export function globalConfigPath(configDir: string): string {
+  return path.join(configDir, 'config.yaml');
+}
+
+export function readGlobalConfigFile(configDir: string): Record<string, unknown> {
+  const configPath = globalConfigPath(configDir);
+  if (!existsSync(configPath)) {
+    return {};
+  }
+  try {
+    const parsed = parse(readFileSync(configPath, 'utf8')) as Record<string, unknown> | null;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+const SETTABLE_KEYS = [
+  'harness',
+  'timeout_seconds',
+  'delivery',
+  'review.max_iterations',
+  'scheduling.concurrency',
+  'scheduling.mode',
+  'agents.developer.harness',
+  'agents.developer.agent',
+  'agents.developer.model',
+  'agents.tester.harness',
+  'agents.tester.agent',
+  'agents.tester.model',
+] as const;
+
+export type SettableKey = (typeof SETTABLE_KEYS)[number];
+
+/**
+ * Writes a value in the global configuration, keeping the rest of the file.
+ */
+export function writeGlobalConfigValue(
+  configDir: string,
+  key: SettableKey,
+  value: string | number | boolean,
+): { path: string; key: string; value: string | number | boolean } {
+  if (!SETTABLE_KEYS.includes(key)) {
+    throw new CrewError(
+      'CONFIG_KEY_UNKNOWN',
+      `Unknown config key: ${key}. Known keys: ${SETTABLE_KEYS.join(', ')}`,
+    );
+  }
+  const current = readGlobalConfigFile(configDir);
+  const parts = key.split('.');
+  let cursor = current;
+  for (const part of parts.slice(0, -1)) {
+    const next = cursor[part];
+    if (!next || typeof next !== 'object' || Array.isArray(next)) {
+      cursor[part] = {};
+    }
+    cursor = cursor[part] as Record<string, unknown>;
+  }
+  const last = parts[parts.length - 1] as string;
+  cursor[last] = value;
+  const configPath = globalConfigPath(configDir);
+  writeFileSync(configPath, stringify(current, { indent: 2 }), 'utf8');
+  return { path: configPath, key, value };
 }
 
 export function loadContext(options: { dbPath?: string } = {}): ResolvedContext {
