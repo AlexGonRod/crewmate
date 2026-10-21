@@ -1307,10 +1307,17 @@ export class Store {
     });
   }
 
-  nextQueuedTask(excludeTaskIds: string[] = [], options: { now?: number } = {}): Task | null {
+  nextQueuedTask(
+    excludeTaskIds: string[] = [],
+    options: { now?: number; excludeProjectIds?: string[] } = {},
+  ): Task | null {
     const exclusion =
       excludeTaskIds.length > 0
         ? ` AND id NOT IN (${excludeTaskIds.map(() => '?').join(', ')})`
+        : '';
+    const projectExclusion =
+      options.excludeProjectIds && options.excludeProjectIds.length > 0
+        ? ` AND project_id NOT IN (${options.excludeProjectIds.map(() => '?').join(', ')})`
         : '';
     const now = new Date(options.now ?? Date.now()).toISOString();
     const row = this.db
@@ -1322,11 +1329,11 @@ export class Store {
              SELECT 1 FROM task_dependencies d
              JOIN tasks dep ON dep.id = d.depends_on_task_id
              WHERE d.task_id = tasks.id AND dep.state NOT IN ('done', 'review')
-           )
+           )${projectExclusion}
          ORDER BY priority DESC, created_at ASC
          LIMIT 1`,
       )
-      .get(now, ...excludeTaskIds) as TaskRow | undefined;
+      .get(now, ...excludeTaskIds, ...(options.excludeProjectIds ?? [])) as TaskRow | undefined;
     return row ? toTask(row) : null;
   }
 

@@ -50,6 +50,7 @@ export interface DaemonOptions {
   concurrency?: number;
   maxAttempts?: number;
   backoffMs?: number;
+  schedulingMode?: 'serial' | 'parallel';
   staleAfterMs?: number;
   leaseTtlSeconds?: number;
   signal?: AbortSignal;
@@ -110,14 +111,19 @@ export async function runDaemon(
 ): Promise<DaemonResult> {
   const execute = options.execute ?? runPipeline;
   const intervalMs = Math.max(250, options.intervalMs ?? 5000);
-  const concurrency = options.once
-    ? 1
-    : Math.max(
-        1,
-        Math.floor(
-          Number.isFinite(options.concurrency) ? (options.concurrency as number) : 1,
-        ),
-      );
+  const explicitConcurrency = Number.isFinite(options.concurrency)
+    ? Math.max(1, Math.floor(options.concurrency as number))
+    : undefined;
+  const configuredConcurrency = Math.max(
+    1,
+    Math.floor(explicitConcurrency ?? (context.config.scheduling?.concurrency ?? 1)),
+  );
+  const concurrency = options.once ? 1 : configuredConcurrency;
+  const schedulingMode =
+    options.schedulingMode ??
+    (explicitConcurrency !== undefined
+      ? 'parallel'
+      : (context.config.scheduling?.mode ?? 'serial'));
   const staleAfterMs = options.staleAfterMs ?? 30_000;
   const maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 1));
   const backoffMs = Math.max(0, Math.floor(options.backoffMs ?? DEFAULT_BACKOFF_MS));
@@ -141,6 +147,7 @@ export async function runDaemon(
   const blockedTasks: string[] = [];
   const active = new Map<string, Promise<void>>();
   const activeTaskIds = new Set<string>();
+  const activeProjects = new Map<string, string>();
   const cooldowns = new Map<string, number>();
   let stopped: DaemonResult['stopped'] = 'idle';
   let stopping = false;
@@ -177,6 +184,7 @@ export async function runDaemon(
   const startTask = (task: Task): void => {
     started += 1;
     activeTaskIds.add(task.id);
+    activeProjects.set(task.id, task.projectId);
     const execution = (async (): Promise<void> => {
       let entry: DaemonTaskResult | null = null;
       try {
@@ -229,6 +237,7 @@ export async function runDaemon(
       } finally {
         activeTaskIds.delete(task.id);
         active.delete(task.id);
+        activeProjects.delete(task.id);
       }
       if (entry) {
         const requeued = scheduleRetry(task.id, entry.error);
@@ -302,10 +311,14 @@ export async function runDaemon(
             cooldowns.delete(taskId);
           }
         }
-        const task = store.nextQueuedTask([
-          ...activeTaskIds,
-          ...cooldowns.keys(),
-        ]);
+        const busyProjects = [...new Set(activeProjects.values())];
+        const task = store.nextQueuedTask(
+          [...activeTaskIds, ...cooldowns.keys()],
+          {
+            excludeProjectIds:
+              schedulingMode === 'serial' ? busyProjects : undefined,
+          },
+        );
         if (!task) {
           break;
         }

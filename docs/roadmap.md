@@ -262,13 +262,22 @@ Referencia: ADR 0017.
 
 ### 3.4 Supervisión y estado
 
-Estado: **pendiente**.
+Estado: **completada**.
 
-- Lanzar tareas en cola o en paralelo según la política del proyecto.
-- Reportar avances en lenguaje natural sin inundar al usuario con logs.
-- Escalar solo decisiones reales: preguntas, bloqueos, conflictos o fallos que
-  requieren autoridad humana.
-- Recuperar la conversación y el estado tras reiniciar la sesión o el daemon.
+- Política de ejecución declarativa en la configuración global
+  (`scheduling.concurrency` y `scheduling.mode`), con el flag `--concurrency`
+  como override.
+- En modo `serial` el daemon no ejecuta a la vez dos tareas del mismo
+  proyecto; en modo `parallel` sí.
+- `crew progress <id>` informa del avance en lenguaje natural: etapa,
+  intento, tiempo transcurrido, riesgo, verificación, CI, eventos recientes y
+  qué toca ahora (en cola, en backoff, esperando dependencias, necesita
+  respuesta, bloqueada, lista para revisión o fallida con su motivo).
+- El briefing del capitán mantiene la lista `attention` con las decisiones
+  reales; el resto se consulta bajo demanda.
+- El estado se recupera tras reiniciar la sesión o el daemon desde SQLite.
+
+Referencia: ADR 0018.
 
 ### 3.5 Merge y aceptación conversacional
 

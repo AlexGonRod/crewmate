@@ -137,8 +137,9 @@ crew task clean tsk_... --force
 | `crew task clean <id> [--force]` | Elimina el worktree; nunca borra la rama |
 | `crew task accept <id> [--force]` | Acepta una tarea en `review`; con `pr`, verifica que el PR esté mergeado |
 | `crew task reject <id> [motivo...] [--reason <texto>]` | Rechaza, guarda feedback y reencola al developer |
-| `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
+| `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--scheduling <serial\|parallel>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
+| `crew progress <id> [--events <n>]` | Informa del avance de una tarea en lenguaje natural y de qué toca ahora |
 | `crew status [--limit <n>]` | Resumen global: lease, conteo por estado, runs activos y tareas recientes con riesgo y CI |
 | `crew plan validate <file>` | Valida un plan y muestra los grupos de ejecución y avisos |
 | `crew plan apply <file> [--project <ref>] [--queue] [--delivery <modo>]` | Crea las tareas del plan, registra sus dependencias y opcionalmente las encola |
@@ -383,6 +384,38 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## Política de ejecución y progreso
+
+La configuración global de `crew` (`~/.config/crew/config.yaml`) declara cómo
+se ejecuta la cola:
+
+```yaml
+scheduling:
+  concurrency: 2
+  mode: serial
+```
+
+- `concurrency`: tareas simultáneas (por defecto 1).
+- `mode: serial`: dos tareas del mismo proyecto nunca corren a la vez;
+  `parallel` lo permite.
+- Precedencia: `--scheduling serial|parallel` fija el modo; `--concurrency N`
+  implica `parallel`; sin ninguno de los dos, manda la configuración.
+
+Para informar del avance sin volcar logs:
+
+```sh
+crew progress tsk_...
+```
+
+```text
+Task tsk_... [review] Añadir endpoint
+Stage: review · attempt 1 · elapsed 2m 14s · updated 2026-01-01T10:00:00.000Z
+Next: ready for review: accept it or request changes
+Risk: medium (score 2) · verify passed · ci passed
+```
+
+Ver ADR 0018.
 
 ## Planes de tareas
 

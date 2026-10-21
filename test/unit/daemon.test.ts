@@ -33,7 +33,16 @@ function context(): ResolvedContext {
       agents: { developer: {}, tester: {} },
       review: { maxIterations: 3 },
       delivery: 'local',
+      scheduling: { concurrency: 1, mode: 'serial' },
     },
+  };
+}
+
+function contextWith(scheduling: { concurrency: number; mode: 'serial' | 'parallel' }): ResolvedContext {
+  const base = context();
+  return {
+    ...base,
+    config: { ...base.config, scheduling },
   };
 }
 
@@ -467,6 +476,95 @@ describe('daemon', () => {
     expect(result.reclaimed).toHaveLength(1);
     expect(store.getTaskOrThrow(task.id).state).toBe('done');
     expect(store.getTaskOrThrow(task.id).attempts).toBe(1);
+  });
+
+  it('runs tasks of the same project one at a time in serial mode', async () => {
+    const store = createStore();
+    const { project, task } = createTask(store);
+    const second = store.createTask({
+      projectId: project.id,
+      title: 'Same project second task',
+      briefText: 'Do the thing',
+      deliveryMode: 'local',
+      methodology: 'free',
+      spec: null,
+    });
+    store.queueTask(task.id);
+    store.queueTask(second.id);
+
+    const running: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const execute: DaemonExecutor = async (execStore, _context, options) => {
+      running.push(options.taskId);
+      await gate;
+      return completeTask(execStore, options.taskId);
+    };
+
+    const daemon = runDaemon(store, contextWith({ concurrency: 2, mode: 'serial' }), {
+      intervalMs: 10,
+      maxTasks: 2,
+      execute,
+    });
+    await waitFor(() => running.length === 1);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(running).toHaveLength(1);
+    release();
+    const result = await daemon;
+    expect(result.processed).toHaveLength(2);
+  });
+
+  it('runs tasks of the same project in parallel in parallel mode', async () => {
+    const store = createStore();
+    const { project, task } = createTask(store);
+    const second = store.createTask({
+      projectId: project.id,
+      title: 'Same project second task',
+      briefText: 'Do the thing',
+      deliveryMode: 'local',
+      methodology: 'free',
+      spec: null,
+    });
+    store.queueTask(task.id);
+    store.queueTask(second.id);
+
+    const running: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const execute: DaemonExecutor = async (execStore, _context, options) => {
+      running.push(options.taskId);
+      await gate;
+      return completeTask(execStore, options.taskId);
+    };
+
+    const daemon = runDaemon(store, contextWith({ concurrency: 2, mode: 'parallel' }), {
+      intervalMs: 10,
+      maxTasks: 2,
+      execute,
+    });
+    await waitFor(() => running.length === 2);
+    release();
+    const result = await daemon;
+    expect(result.processed).toHaveLength(2);
+  });
+
+  it('takes the concurrency from the scheduling policy', async () => {
+    const store = createStore();
+    const { task } = createTask(store);
+    store.queueTask(task.id);
+
+    const result = await runDaemon(
+      store,
+      contextWith({ concurrency: 3, mode: 'parallel' }),
+      { once: true, execute: successfulExecutor },
+    );
+
+    expect(result.processed).toHaveLength(1);
+    expect(store.getTaskOrThrow(task.id).state).toBe('done');
   });
 
   it('leaves tasks leased by another process queued and retries later', async () => {

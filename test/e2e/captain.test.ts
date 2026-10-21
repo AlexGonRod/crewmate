@@ -200,6 +200,94 @@ describe('captain layer', () => {
     expect(Date.parse(docsStarted)).toBeGreaterThanOrEqual(Date.parse(apiEnded));
   });
 
+  it('reports the progress of a task in plain language', () => {
+    const created = cli([
+      '--json',
+      'task',
+      'create',
+      '--project',
+      'demo',
+      '--title',
+      'Progress task',
+      '--brief',
+      'Do the thing',
+      '--methodology',
+      'free',
+    ]);
+    const taskId = created.json.task.id as string;
+
+    const queued = cli(['--json', 'task', 'queue', taskId]);
+    expect(queued.status, queued.stderr).toBe(0);
+
+    const progress = cli(['--json', 'progress', taskId]);
+    expect(progress.status, progress.stderr).toBe(0);
+    expect(progress.json.state).toBe('queued');
+    expect(progress.json.next).toContain('waiting in the queue');
+    expect(progress.json.summary.state).toBe('queued');
+
+    const text = cli(['progress', taskId]);
+    expect(text.status, text.stderr).toBe(0);
+    expect(text.stdout).toContain(`Task ${taskId} [queued]`);
+    expect(text.stdout).toContain('Next:');
+    expect(text.stdout).toContain('Risk:');
+  });
+
+  it('runs the tasks of one project one at a time in serial mode', () => {
+    const configDir = env.CREW_CONFIG_DIR as string;
+    const configPath = path.join(configDir, 'config.yaml');
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      configPath,
+      ['scheduling:', '  concurrency: 2', '  mode: serial', ''].join('\n'),
+    );
+
+    try {
+      const ids: string[] = [];
+      for (const title of ['Serial first', 'Serial second']) {
+        const created = cli([
+          '--json',
+          'task',
+          'create',
+          '--project',
+          'demo',
+          '--title',
+          title,
+          '--brief',
+          'Do the thing',
+          '--methodology',
+          'free',
+        ]);
+        ids.push(created.json.task.id as string);
+        cli(['--json', 'task', 'queue', created.json.task.id as string]);
+      }
+
+      const queued = cli(['--json', 'task', 'list', '--state', 'queued']);
+      const maxTasks = queued.json.tasks.length;
+
+      const run = cli([
+        '--json',
+        'daemon',
+        'run',
+        '--max-tasks',
+        String(maxTasks),
+        '--harness',
+        'fake',
+        '--env',
+        'CREW_FAKE_SCENARIO=success',
+        '--quiet',
+      ]);
+      expect(run.status, run.stderr).toBe(0);
+
+      const first = cli(['--json', 'task', 'show', ids[0] as string]).json;
+      const second = cli(['--json', 'task', 'show', ids[1] as string]).json;
+      const firstEnded = first.runs.at(-1).endedAt as string;
+      const secondStarted = second.runs.at(0).startedAt as string;
+      expect(Date.parse(secondStarted)).toBeGreaterThanOrEqual(Date.parse(firstEnded));
+    } finally {
+      rmSync(configPath, { force: true });
+    }
+  });
+
   it('limits the briefing to a single project', () => {
     const brief = cli(['--json', 'captain', 'brief', '--project', 'demo']);
     expect(brief.status, brief.stderr).toBe(0);

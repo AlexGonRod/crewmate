@@ -21,6 +21,13 @@ export interface ReviewConfig {
   maxIterations: number;
 }
 
+export type SchedulingMode = 'serial' | 'parallel';
+
+export interface SchedulingConfig {
+  concurrency: number;
+  mode: SchedulingMode;
+}
+
 export interface CrewConfig {
   harness: string;
   timeoutSeconds: number;
@@ -30,6 +37,7 @@ export interface CrewConfig {
   };
   review: ReviewConfig;
   delivery: DeliveryMode;
+  scheduling: SchedulingConfig;
 }
 
 export interface ResolvedContext {
@@ -48,6 +56,10 @@ const DEFAULT_CONFIG: CrewConfig = {
     maxIterations: 3,
   },
   delivery: 'local',
+  scheduling: {
+    concurrency: 1,
+    mode: 'serial',
+  },
 };
 
 const DELIVERY_MODES: DeliveryMode[] = ['local', 'pr', 'auto_merge', 'scout'];
@@ -110,6 +122,16 @@ function readGlobalConfig(configDir: string): Partial<CrewConfig> {
     if (delivery) {
       result.delivery = delivery;
     }
+    if (parsed.scheduling && typeof parsed.scheduling === 'object') {
+      const scheduling = parsed.scheduling as Record<string, unknown>;
+      const concurrency =
+        typeof scheduling.concurrency === 'number' && scheduling.concurrency >= 1
+          ? Math.floor(scheduling.concurrency)
+          : DEFAULT_CONFIG.scheduling.concurrency;
+      const mode: SchedulingMode =
+        scheduling.mode === 'parallel' ? 'parallel' : 'serial';
+      result.scheduling = { concurrency, mode };
+    }
     return result;
   } catch (error) {
     throw new CrewError(
@@ -139,6 +161,10 @@ export function loadContext(options: { dbPath?: string } = {}): ResolvedContext 
     review: {
       ...DEFAULT_CONFIG.review,
       ...stored.review,
+    },
+    scheduling: {
+      ...DEFAULT_CONFIG.scheduling,
+      ...stored.scheduling,
     },
   };
   return { paths, config };

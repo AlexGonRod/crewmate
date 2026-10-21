@@ -7,6 +7,7 @@ import { runDaemon, type DaemonTaskResult } from '../app/daemon';
 import { buildCaptainBrief, writeCaptainInstructions } from '../app/captain';
 import { intakeProject } from '../app/intake';
 import { applyPlan, parsePlan, validatePlan } from '../app/plan';
+import { buildProgress, renderProgress } from '../app/progress';
 import { addProject, initProject } from '../app/projects';
 import { detectHarness } from '../adapters/harness/detect';
 import { listHarnessAdapters } from '../adapters/harness/registry';
@@ -819,7 +820,15 @@ function buildProgram(): Command {
     .option('--once', 'process at most one task and exit')
     .option('--interval <seconds>', 'idle poll interval', Number, 5)
     .option('--max-tasks <n>', 'stop after N tasks', Number)
-    .option('--concurrency <n>', 'tasks to run in parallel', Number, 1)
+    .option(
+      '--concurrency <n>',
+      'tasks to run in parallel (default: scheduling.concurrency)',
+      Number,
+    )
+    .option(
+      '--scheduling <mode>',
+      'execution policy for tasks of the same project: serial or parallel',
+    )
     .option('--max-attempts <n>', 'attempts per task before giving up', Number, 1)
     .option('--backoff <seconds>', 'base delay between automatic retries', Number, 60)
     .option('--harness <id>', 'developer harness adapter: fake, opencode, or auto')
@@ -834,7 +843,8 @@ function buildProgram(): Command {
         once?: boolean;
         interval: number;
         maxTasks?: number;
-        concurrency: number;
+        concurrency?: number;
+        scheduling?: string;
         maxAttempts: number;
         backoff: number;
         harness?: string;
@@ -880,6 +890,10 @@ function buildProgram(): Command {
               intervalMs: options.interval * 1000,
               maxTasks: options.maxTasks,
               concurrency: options.concurrency,
+              schedulingMode:
+                options.scheduling === 'serial' || options.scheduling === 'parallel'
+                  ? options.scheduling
+                  : undefined,
               maxAttempts: options.maxAttempts,
               backoffMs: options.backoff * 1000,
               harnessId: options.harness,
@@ -1301,6 +1315,21 @@ function buildProgram(): Command {
             : `Overwrote ${result.path}`,
         );
       }
+    });
+
+  program
+    .command('progress <id>')
+    .description('report the progress of a task in plain language')
+    .option('--events <n>', 'number of recent events to include', Number, 8)
+    .action(async (id: string, options: { events: number }) => {
+      const progress = await withStore((store) =>
+        buildProgress(store.getTaskDetail(id), { events: options.events }),
+      );
+      if (globalOptions().json) {
+        printJson(progress);
+        return;
+      }
+      console.log(renderProgress(progress));
     });
 
   program
