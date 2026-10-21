@@ -202,7 +202,7 @@ Los cinco criterios están cumplidos.
 
 ## Fase 3 — Capitán conversacional
 
-Estado: **pendiente**.
+Estado: **en curso** (3.1 completada).
 
 Esta fase entrega la experiencia de firstmate: hablar con un solo agente y que
 este dirija el trabajo. La implementación recomendada es una sesión/skill de
@@ -211,14 +211,19 @@ El capitán invoca las operaciones deterministas de `crew`.
 
 ### 3.1 Capa capitán
 
-Estado: **pendiente**.
+Estado: **completada**.
 
-- Sesión de harness con instrucciones `AGENTS.md` y skills de capitán.
-- Puede consultar estado, crear tareas, responder, reintentar y pedir merges.
-- No escribe directamente en los repositorios de trabajo.
-- Traduce la conversación a comandos y valida el resultado antes de responder.
+- `crew captain init` escribe las instrucciones `AGENTS.md` del capitán en el
+  repositorio, sin sobrescribir un archivo existente salvo con `--force`.
+- `crew captain brief` devuelve un briefing compacto: proyectos, conteo por
+  estado, lease, runs activos, tareas con riesgo/CI/verificación/tester/PR y la
+  lista `attention` de lo que requiere decisión humana.
+- El capitán compone comandos de la CLI, no escribe en los repositorios de
+  trabajo y valida la salida antes de informar.
+- La capa se apoya en el mismo `TaskSummary` del motor, así que no hay un
+  segundo modelo de verdad.
 
-Referencia: ADR 0009.
+Referencia: ADR 0009 y ADR 0015.
 
 ### 3.2 Intake de proyecto
 

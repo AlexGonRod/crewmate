@@ -48,6 +48,8 @@ Fases 0, 1 y 2 completadas:
   PR.
 - Agente falso con escenarios de desarrollador y tester.
 - CLI con salida humana y `--json`.
+- Capa capitán: instrucciones `AGENTS.md` instalables y briefing compacto con
+  riesgo, CI y decisiones pendientes.
 - Event log append-only y `doctor`.
 - Tests unitarios y e2e.
 - Paquete npm instalable con binario `crew`.
@@ -62,7 +64,7 @@ El resto del alcance y las fases pendientes están en el
 | 0. Núcleo durable | Completada | Estado, worktrees, metodologías y recuperación |
 | 1. Pipeline y entrega | Completada | Developer, tester, verificación, commit/PR y daemon |
 | 2. Motor autónomo confiable | Completada | CI, auto-merge, concurrencia, riesgo y reintentos |
-| 3. Capitán conversacional | Pendiente | Chat, intake, planificación, supervisión y merge |
+| 3. Capitán conversacional | En curso | Capa capitán, intake, planificación, supervisión y merge |
 | 4. Runtime visible y escala | Pendiente | Sesiones visibles, remotos, memoria y scout |
 
 Detalle, criterios de salida y dependencias: [docs/roadmap.md](docs/roadmap.md).
@@ -137,6 +139,8 @@ crew task clean tsk_... --force
 | `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
 | `crew status [--limit <n>]` | Resumen global: lease, conteo por estado, runs activos y tareas recientes con riesgo y CI |
+| `crew captain brief [--project <ref>] [--limit <n>]` | Briefing para el capitán: proyectos, estado, riesgo y lo que requiere decisión humana |
+| `crew captain init [--force]` | Escribe las instrucciones `AGENTS.md` del capitán en el repositorio |
 | `crew daemon reconcile [--stale-after <s>] [--requeue] [--max-attempts <n>] [--backoff <s>]` | Marca runs muertos como perdidos y falla o reencola sus tareas |
 | `crew report --task <id> --run <id> [--file <path\|->] [--status <s>] [--summary <t>]` | Registra un reporte |
 | `crew events [--task <id>] [--follow] [--limit <n>]` | Muestra el event log |
@@ -376,6 +380,32 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## Capa capitán
+
+El capitán es una sesión de `opencode` (o equivalente) que habla con la persona
+y dirige el trabajo mediante la CLI de `crew`. El núcleo no cambia: el capitán
+solo compone comandos y valida su salida.
+
+```sh
+# Instalar las instrucciones del capitán en el repositorio
+pnpm crew captain init
+
+# Contexto compacto antes de decidir
+pnpm crew --json captain brief
+```
+
+`captain init` escribe un `AGENTS.md` con las reglas: todo cambio pasa por
+`crew task create`/`run`, nunca se editan los worktrees, se consulta el estado
+antes de actuar, se escalan solo las decisiones reales y no se mergea sin
+comprobar política, CI, verificación y veredicto del tester. No sobrescribe un
+`AGENTS.md` existente salvo con `--force`.
+
+`captain brief` devuelve proyectos (rama, forge, entrega, auto-merge, CI y
+comandos de verificación), conteo de tareas por estado, lease, runs activos, las
+tareas recientes con riesgo, CI, verificación, tester y PR, y una lista
+`attention` con lo que necesita decisión humana (`waiting_input`, `blocked`,
+`review`, `failed`). Ver ADR 0015.
 
 ## Riesgo y resumen de estado
 

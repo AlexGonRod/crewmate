@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { Command, CommanderError } from 'commander';
 import pc from 'picocolors';
 import { runDaemon, type DaemonTaskResult } from '../app/daemon';
+import { buildCaptainBrief, writeCaptainInstructions } from '../app/captain';
 import { addProject, initProject } from '../app/projects';
 import { detectHarness } from '../adapters/harness/detect';
 import { listHarnessAdapters } from '../adapters/harness/registry';
@@ -1094,6 +1095,99 @@ function buildProgram(): Command {
         });
       },
     );
+
+  const captain = program
+    .command('captain')
+    .description('captain helpers: briefing and AGENTS.md instructions');
+
+  captain
+    .command('brief')
+    .description('compact briefing with projects, tasks, risk and what needs attention')
+    .option('--project <ref>', 'limit the briefing to a project id or name')
+    .option('--limit <n>', 'number of tasks to include', Number, 20)
+    .action(async (options: { project?: string; limit: number }) => {
+      const brief = await withStore((store) => {
+        const projects = store.listProjects();
+        let projectId: string | undefined;
+        if (options.project) {
+          const match = projects.find(
+            (project) =>
+              project.id === options.project || project.name === options.project,
+          );
+          if (!match) {
+            throw new CrewError(
+              'PROJECT_NOT_FOUND',
+              `Project not found: ${options.project}`,
+            );
+          }
+          projectId = match.id;
+        }
+        return buildCaptainBrief(store, {
+          limit: options.limit,
+          projectId,
+        });
+      });
+      if (globalOptions().json) {
+        printJson(brief);
+        return;
+      }
+      console.log(`Tasks: ${brief.totalTasks}`);
+      for (const [state, count] of Object.entries(brief.counts)) {
+        console.log(`  ${state}: ${count}`);
+      }
+      console.log(
+        `Lease: ${brief.lease ? `${brief.lease.owner} (${brief.lease.active ? 'active' : 'expired'})` : 'none'}`,
+      );
+      console.log(`Active runs: ${brief.activeRuns.length}`);
+      if (brief.attention.length > 0) {
+        console.log('\nNeeds attention:');
+        for (const item of brief.attention) {
+          console.log(`  ${item.taskId} [${item.state}] ${item.title} - ${item.reason}`);
+        }
+      }
+      if (brief.tasks.length > 0) {
+        console.log('\nTasks:');
+        printTable(
+          brief.tasks.map((summary) => ({
+            id: summary.taskId,
+            state: summary.state,
+            risk: summary.risk?.level ?? '-',
+            ci: summary.ci?.state ?? '-',
+            verify: summary.verification.state,
+            tester: summary.tester?.verdict ?? '-',
+            pr: summary.pr?.state ?? '-',
+            title: summary.title,
+          })),
+          [
+            { key: 'id', label: 'ID' },
+            { key: 'state', label: 'STATE' },
+            { key: 'risk', label: 'RISK' },
+            { key: 'ci', label: 'CI' },
+            { key: 'verify', label: 'VERIFY' },
+            { key: 'tester', label: 'TESTER' },
+            { key: 'pr', label: 'PR' },
+            { key: 'title', label: 'TITLE' },
+          ],
+        );
+      }
+    });
+
+  captain
+    .command('init')
+    .description('write the captain AGENTS.md instructions in the current repository')
+    .option('--force', 'overwrite an existing AGENTS.md')
+    .action((options: { force?: boolean }) => {
+      const result = writeCaptainInstructions(process.cwd(), { force: options.force });
+      if (globalOptions().json) {
+        printJson(result);
+      } else {
+        console.log(
+          result.created
+            ? `Wrote ${result.path}`
+            : `Overwrote ${result.path}`,
+        );
+      }
+    });
 
   program
     .command('status')
