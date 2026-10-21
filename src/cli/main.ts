@@ -7,6 +7,17 @@ import { runDaemon, type DaemonTaskResult } from '../app/daemon';
 import { buildCaptainBrief, writeCaptainInstructions } from '../app/captain';
 import { mergeTask } from '../app/merge';
 import { startUiServer } from '../app/ui';
+import {
+  buildServiceDefinition,
+  detectServiceManager,
+  installService,
+  readLogTail,
+  resolveCrewCommand,
+  serviceEnvironment,
+  serviceStatus,
+  uninstallService,
+  type ServiceManager,
+} from '../app/service';
 import { killSession, listSessions, tmuxAvailable } from '../app/session';
 import { intakeProject } from '../app/intake';
 import { applyPlan, parsePlan, validatePlan } from '../app/plan';
@@ -1712,6 +1723,234 @@ function buildProgram(): Command {
         );
       }
     });
+
+  const service = program
+    .command('service')
+    .description('install the crew daemon as a system service');
+
+  const serviceManagerOption = (manager?: string): ServiceManager | undefined => {
+    if (manager === 'launchd' || manager === 'systemd') {
+      return manager;
+    }
+    return detectServiceManager() ?? undefined;
+  };
+
+  service
+    .command('install')
+    .description('install and enable the daemon service')
+    .option('--manager <manager>', 'service manager: launchd or systemd')
+    .option('--label <label>', 'launchd label for the service')
+    .option('--interval <seconds>', 'idle poll interval', Number, 5)
+    .option('--concurrency <n>', 'tasks to run in parallel', Number)
+    .option('--max-attempts <n>', 'attempts per task before giving up', Number)
+    .option('--backoff <seconds>', 'base delay between automatic retries', Number)
+    .option('--dry-run', 'print the unit file and the commands without applying them')
+    .action(
+      (options: {
+        manager?: string;
+        label?: string;
+        interval: number;
+        concurrency?: number;
+        maxAttempts?: number;
+        backoff?: number;
+        dryRun?: boolean;
+      }) => {
+        const manager = serviceManagerOption(options.manager);
+        if (!manager) {
+          throw new CrewError(
+            'SERVICE_MANAGER_UNSUPPORTED',
+            `No supported service manager for this platform (${process.platform}). Use --manager launchd or --manager systemd.`,
+          );
+        }
+        const context = loadContext({ dbPath: globalOptions().db });
+        const command = [
+          ...resolveCrewCommand(),
+          'daemon',
+          'run',
+          '--json',
+          '--interval',
+          String(options.interval),
+        ];
+        if (options.concurrency !== undefined) {
+          command.push('--concurrency', String(options.concurrency));
+        }
+        if (options.maxAttempts !== undefined) {
+          command.push('--max-attempts', String(options.maxAttempts));
+        }
+        if (options.backoff !== undefined) {
+          command.push('--backoff', String(options.backoff));
+        }
+        const definition = buildServiceDefinition(
+          {
+            command,
+            env: serviceEnvironment(context.paths),
+            workDir: context.paths.dataDir,
+            logDir: context.paths.logsDir,
+            label: options.label,
+          },
+          manager,
+        );
+
+        if (options.dryRun) {
+          if (globalOptions().json) {
+            printJson({
+              manager: definition.manager,
+              unitPath: definition.unitPath,
+              content: definition.content,
+              commands: definition.install,
+            });
+          } else {
+            console.log(definition.content);
+            console.log(
+              `\nunit: ${definition.unitPath}\ncommands: ${definition.install
+                .map((entry) => entry.join(' '))
+                .join(' | ')}`,
+            );
+          }
+          return;
+        }
+
+        const result = installService(definition);
+        if (globalOptions().json) {
+          printJson({
+            manager: result.definition.manager,
+            label: result.definition.label,
+            unitPath: result.unitPath,
+            installed: result.installed,
+            commands: result.commands,
+            logPath: result.definition.logPath,
+          });
+        } else {
+          console.log(`Service ${result.definition.label} installed (${result.definition.manager})`);
+          console.log(`unit:  ${result.unitPath}`);
+          console.log(`logs:  ${result.definition.logPath}`);
+        }
+      },
+    );
+
+  service
+    .command('status')
+    .description('show whether the daemon service is installed and running')
+    .option('--manager <manager>', 'service manager: launchd or systemd')
+    .option('--label <label>', 'launchd label for the service')
+    .action((options: { manager?: string; label?: string }) => {
+      const manager = serviceManagerOption(options.manager);
+      if (!manager) {
+        throw new CrewError(
+          'SERVICE_MANAGER_UNSUPPORTED',
+          `No supported service manager for this platform (${process.platform}). Use --manager launchd or --manager systemd.`,
+        );
+      }
+      const context = loadContext({ dbPath: globalOptions().db });
+      const definition = buildServiceDefinition(
+        {
+          command: [...resolveCrewCommand(), 'daemon', 'run'],
+          env: serviceEnvironment(context.paths),
+          workDir: context.paths.dataDir,
+          logDir: context.paths.logsDir,
+          label: options.label,
+        },
+        manager,
+      );
+      const status = serviceStatus(definition);
+      if (globalOptions().json) {
+        printJson(status);
+      } else {
+        console.log(`manager:  ${status.manager}`);
+        console.log(`label:    ${status.label}`);
+        console.log(`unit:     ${status.unitPath}`);
+        console.log(`state:    ${status.state}`);
+        console.log(`pid:      ${status.pid ?? '-'}`);
+        console.log(`logs:     ${status.logPath}`);
+        if (status.detail) {
+          console.log(`detail:   ${status.detail}`);
+        }
+      }
+      if (!status.running) {
+        process.exitCode = 1;
+      }
+    });
+
+  service
+    .command('uninstall')
+    .description('stop and remove the daemon service')
+    .option('--manager <manager>', 'service manager: launchd or systemd')
+    .option('--label <label>', 'launchd label for the service')
+    .action((options: { manager?: string; label?: string }) => {
+      const manager = serviceManagerOption(options.manager);
+      if (!manager) {
+        throw new CrewError(
+          'SERVICE_MANAGER_UNSUPPORTED',
+          `No supported service manager for this platform (${process.platform}). Use --manager launchd or --manager systemd.`,
+        );
+      }
+      const context = loadContext({ dbPath: globalOptions().db });
+      const definition = buildServiceDefinition(
+        {
+          command: [...resolveCrewCommand(), 'daemon', 'run'],
+          env: serviceEnvironment(context.paths),
+          workDir: context.paths.dataDir,
+          logDir: context.paths.logsDir,
+          label: options.label,
+        },
+        manager,
+      );
+      const result = uninstallService(definition);
+      if (globalOptions().json) {
+        printJson({
+          manager: definition.manager,
+          label: definition.label,
+          unitPath: result.unitPath,
+          removed: result.removed,
+          commands: result.commands,
+        });
+      } else {
+        console.log(
+          `Service ${definition.label} ${result.removed ? 'removed' : 'was not installed'}`,
+        );
+        console.log(`unit: ${result.unitPath}`);
+      }
+    });
+
+  service
+    .command('logs')
+    .description('show the last lines of the daemon service log')
+    .option('--manager <manager>', 'service manager: launchd or systemd')
+    .option('--label <label>', 'launchd label for the service')
+    .option('--lines <n>', 'number of lines to show', Number, 20)
+    .option('--errors', 'show the error log instead of the main log')
+    .action(
+      (options: { manager?: string; label?: string; lines: number; errors?: boolean }) => {
+      const manager = serviceManagerOption(options.manager);
+      if (!manager) {
+        throw new CrewError(
+          'SERVICE_MANAGER_UNSUPPORTED',
+          `No supported service manager for this platform (${process.platform}).`,
+        );
+      }
+      const context = loadContext({ dbPath: globalOptions().db });
+      const definition = buildServiceDefinition(
+        {
+          command: [...resolveCrewCommand(), 'daemon', 'run'],
+          env: serviceEnvironment(context.paths),
+          workDir: context.paths.dataDir,
+          logDir: context.paths.logsDir,
+          label: options.label,
+        },
+        manager,
+      );
+      const file = options.errors ? definition.errorLogPath : definition.logPath;
+      const lines = readLogTail(file, Math.max(1, options.lines));
+      if (globalOptions().json) {
+        printJson({ path: file, lines });
+      } else {
+        console.log(`log: ${file}`);
+        for (const line of lines) {
+          console.log(line);
+        }
+      }
+    },
+    );
 
   program
     .command('doctor')

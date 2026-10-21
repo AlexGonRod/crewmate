@@ -324,8 +324,7 @@ Referencia: ADR 0020.
 
 Estado: **completada**.
 
-Quedan fuera del núcleo del roadmap, como mejoras posteriores, el despliegue
-del daemon como servicio del sistema (launchd/systemd) y mover el worktree y el
+Queda fuera del núcleo del roadmap, como mejora posterior, mover el worktree y el
 commit al host remoto.
 
 - Sesiones visibles en tmux/PTY, con capacidad de observar o intervenir.
@@ -344,9 +343,11 @@ commit al host remoto.
   pipeline (sin verificación, tester, commit ni PR) que termina en `review`
   con un informe `crew.report/v3` guardado como artefacto `scout`, y
   `crew scout` lo crea en una línea.
-- UI web o servicio del sistema. **Completada** (ADR 0025): `crew ui` sirve un
-  panel de solo lectura (resumen, tareas, eventos) en `127.0.0.1`, sin
-  dependencias externas. Queda el despliegue como servicio del sistema.
+- UI web o servicio del sistema. **Completada** (ADR 0025 y ADR 0027): `crew ui`
+  sirve un panel de solo lectura (resumen, tareas, eventos) en `127.0.0.1`, sin
+  dependencias externas, y `crew service install|status|uninstall` despliega el
+  daemon como servicio del usuario (launchd en macOS, systemd --user en
+  Linux), sin sudo y con reinicio automático.
 - Soporte de más forges además de GitHub. **Completada** (ADR 0024): una
   interfaz `Forge` con implementaciones de GitHub (`gh`) y GitLab (`glab`);
   el motor, el merge conversacional y `task accept` ya no hablan con `gh`
@@ -405,3 +406,18 @@ concurrencia.
 - ADR 0010: gate de CI con GitHub Actions.
 - ADR 0011: auto-merge con guardrails.
 - ADR 0012: scheduler concurrente del daemon.
+- ADR 0013: evaluación de riesgo y resumen de estado.
+- ADR 0014: reintentos automáticos con backoff.
+- ADR 0015: capa de capitán con instrucciones y briefing.
+- ADR 0016: intake de proyecto con clonado y consentimiento.
+- ADR 0017: planes de tareas con dependencias.
+- ADR 0018: política de ejecución y reporte de progreso.
+- ADR 0019: merge conversacional con puertas.
+- ADR 0020: demo de aceptación y toma de leases muertos.
+- ADR 0021: memoria de proyecto.
+- ADR 0022: tareas scout.
+- ADR 0023: sesiones visibles.
+- ADR 0024: capa de forjas.
+- ADR 0025: UI web de solo lectura.
+- ADR 0026: workers remotos por SSH.
+- ADR 0027: el daemon como servicio del sistema.

@@ -395,6 +395,25 @@ La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
 
+## Daemon como servicio
+
+```sh
+crew service install            # launchd en macOS, systemd --user en Linux
+crew service status
+crew service logs --lines 50
+crew service uninstall
+```
+
+- El servicio corre como el usuario (sin `sudo`): `~/Library/LaunchAgents/` en
+  macOS y `~/.config/systemd/user/` en Linux.
+- Es el mismo daemon (`crew daemon run --json`), con la misma base de datos y
+  los mismos paths que el CLI de la terminal.
+- Reinicio automático si se cae, y logs en `<data>/logs/daemon.log`.
+- `crew service install --dry-run` imprime la unidad y los comandos sin tocar
+  el sistema.
+
+Ver ADR 0027.
+
 ## Workers remotos
 
 ```yaml
