@@ -42,7 +42,7 @@ import type {
   TaskSummary,
 } from '../core/types';
 import { runDoctor } from '../doctor/doctor';
-import { removeWorktree } from '../git/worktree';
+import { removeWorkspace, resolveWorkspace } from '../app/workspace';
 import { getForge } from '../forges';
 import {
   normalizeReport,
@@ -885,7 +885,7 @@ function buildProgram(): Command {
     .description('remove a task worktree without deleting its branch')
     .option('--force', 'discard a dirty worktree')
     .action(async (id: string, options: { force?: boolean }) => {
-      const cleaned = await withStore((store) => {
+      const cleaned = await withStore((store, context) => {
         const detail = store.getTaskDetail(id);
         if (!detail.task.worktreePath) {
           throw new CrewError('NO_WORKTREE', `Task ${id} has no worktree`);
@@ -893,9 +893,13 @@ function buildProgram(): Command {
         if (!detail.project) {
           throw new CrewError('PROJECT_NOT_FOUND', `Project not found for task ${id}`);
         }
-        removeWorktree({
-          repoPath: detail.project.rootPath,
-          worktreePath: detail.task.worktreePath,
+        const resolution = resolveWorkspace({
+          project: detail.project,
+          projectConfig: readProjectConfig(detail.project.rootPath),
+          task: detail.task,
+          worktreesDir: context.paths.worktreesDir,
+        });
+        removeWorkspace(resolution.workspace, {
           force: options.force,
         });
         return store.clearWorktree(id);

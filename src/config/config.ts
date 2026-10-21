@@ -184,6 +184,10 @@ export interface ProjectAutoMergeConfig {
 export interface ProjectRunnerConfig {
   host: string;
   ssh_options?: string[];
+  /** Repository root on the remote host. Enables the fully remote workspace. */
+  repo_path?: string;
+  /** Root directory for the remote worktrees. */
+  worktree_root?: string;
 }
 
 export interface ProjectConfig {
@@ -303,6 +307,40 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
         throw new CrewError(
           'PROJECT_CONFIG_INVALID',
           `auto_merge.delete_branch must be a boolean in ${configPath}`,
+        );
+      }
+    }
+    if (parsed.runner !== undefined) {
+      const runner = parsed.runner;
+      if (
+        !runner ||
+        typeof runner !== 'object' ||
+        Array.isArray(runner) ||
+        typeof runner.host !== 'string' ||
+        runner.host.trim() === ''
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `runner.host must be a non-empty string in ${configPath}`,
+        );
+      }
+      for (const key of ['repo_path', 'worktree_root'] as const) {
+        const value = runner[key];
+        if (value !== undefined && (typeof value !== 'string' || value.trim() === '')) {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `runner.${key} must be a non-empty string in ${configPath}`,
+          );
+        }
+      }
+      if (
+        runner.ssh_options !== undefined &&
+        (!Array.isArray(runner.ssh_options) ||
+          !runner.ssh_options.every((item) => typeof item === 'string'))
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `runner.ssh_options must be a list of strings in ${configPath}`,
         );
       }
     }

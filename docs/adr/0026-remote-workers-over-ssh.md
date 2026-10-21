@@ -56,6 +56,12 @@ pipeline.
 - Si el host remoto no ve el worktree, la tarea falla con un error de
   verificación o de reporte, no con un cambio silencioso.
 
+## Actualización
+
+El ADR 0028 amplía este diseño: si el proyecto declara además
+`runner.repo_path`, el worktree, el commit y el push ocurren en el host
+remoto, y este ADR queda como el caso del sistema de archivos compartido.
+
 ## Alternativas descartadas
 
 - Mover todo el pipeline al host remoto (worktree, commit y push remotos):

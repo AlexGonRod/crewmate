@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { isPidAlive } from '../core/process';
 import { isTerminalTaskState } from '../core/state';
 import { readProjectConfig, type ResolvedContext } from '../config/config';
+import { resolveWorkspace } from '../app/workspace';
 import { detectHarness } from '../adapters/harness/detect';
 import { fakeAgentPath } from '../adapters/harness/fake';
 import { getHarness, listHarnessAdapters } from '../adapters/harness/registry';
@@ -191,7 +192,17 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
     if (!task.worktreePath) {
       continue;
     }
-    if (!existsSync(task.worktreePath)) {
+    const project = store.getProject(task.projectId);
+    if (!project) {
+      continue;
+    }
+    const resolution = resolveWorkspace({
+      project,
+      projectConfig: readProjectConfig(project.rootPath),
+      task,
+      worktreesDir: context.paths.worktreesDir,
+    });
+    if (!resolution.workspace.exists(resolution.workspace.worktreePath)) {
       checks.push({
         name: `worktree.${task.id}`,
         status: isTerminalTaskState(task.state) ? 'warn' : 'error',

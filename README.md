@@ -421,6 +421,8 @@ Ver ADR 0027.
 runner:
   host: builder@server
   ssh_options: ["-o", "BatchMode=yes"]
+  repo_path: /srv/repos/mi-proyecto     # opcional
+  worktree_root: /srv/worktrees         # opcional
 ```
 
 ```sh
@@ -431,11 +433,15 @@ crew task run tsk_... --host builder@server   # sobrescribe el host
   configurado, con el mismo contrato de reporte, timeout y cancelación.
 - Solo se reenvían las variables `CREW_*` y el `PATH`: el entorno del comando
   remoto es el del host remoto.
-- **Condición de uso**: el host remoto tiene que ver la misma ruta del
-  worktree (sistema de archivos compartido, volumen montado o clon espejo).
-  La base de datos, el commit, el push y las forjas siguen siendo locales.
+- **Sin `repo_path`**: el host remoto tiene que ver la misma ruta del worktree
+  (sistema de archivos compartido, volumen montado o clon espejo). La base de
+  datos, el commit, el push y las forjas siguen siendo locales (ADR 0026).
+- **Con `repo_path`**: el worktree se crea en el host remoto, el agente trabaja
+  allí, y el commit y el push salen de allí con las credenciales del host. La
+  base de datos, los informes y los logs siguen siendo locales, y el pull
+  request se crea desde aquí (ADR 0028).
 
-Ver ADR 0026.
+Ver ADR 0026 y ADR 0028.
 
 ## UI web
 

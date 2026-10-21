@@ -14,17 +14,20 @@ import { newId } from '../core/ids';
 import type { ResolvedContext } from '../config/config';
 import { readProjectConfig } from '../config/config';
 import type { Store } from '../store/store';
-import { commitWorktree, pushBranch } from '../git/commit';
-import { diffStats } from '../git/diff';
+import {
+  commitWorkspace,
+  diffStatsWorkspace,
+  pushWorkspace,
+} from './workspace';
 import { isRetryableError } from './retry';
 import { getForge } from '../forges';
-import { parseRunnerConfig } from './runner';
 import {
   DEFAULT_CI_INTERVAL_SECONDS,
   DEFAULT_CI_TIMEOUT_SECONDS,
   waitForCiGate,
 } from '../ci/ci';
 import { currentBranch } from '../git/git';
+import { resolveWorkspace } from './workspace';
 import {
   DEFAULT_VERIFY_TIMEOUT_SECONDS,
   runVerificationCommands,
@@ -135,9 +138,15 @@ async function runPipelineLocked(
   const delivery: DeliveryMode =
     options.delivery ?? task.deliveryMode ?? context.config.delivery;
   const isScout = delivery === 'scout';
-  const remote = options.remoteHost
-    ? { host: options.remoteHost, options: [] }
-    : parseRunnerConfig(projectConfig?.runner);
+  const resolution = resolveWorkspace({
+    project,
+    projectConfig,
+    task,
+    worktreesDir: context.paths.worktreesDir,
+    remoteHost: options.remoteHost,
+  });
+  const workspace = resolution.workspace;
+  const remote = resolution.runner;
   const verifyCommands = isScout ? [] : verificationCommands(projectConfig, task);
   const developerHarnessId =
     options.developerHarnessId ??
@@ -192,6 +201,7 @@ async function runPipelineLocked(
     quiet: options.quiet,
     session: options.session,
     remote,
+    workspace,
   };
 
   let developerReport: Report | null = null;
@@ -313,7 +323,7 @@ async function runPipelineLocked(
       const outcomes = await runVerificationCommands({
         taskId: task.id,
         runId: developer.run.id,
-        worktreePath: task.worktreePath ?? project.rootPath,
+        worktreePath: workspace.worktreePath,
         commands: verifyCommands,
         timeoutSeconds:
           projectConfig?.verify_timeout_seconds ?? DEFAULT_VERIFY_TIMEOUT_SECONDS,
@@ -424,20 +434,17 @@ async function runPipelineLocked(
       throw new CrewError('TASK_ABORTED', 'Task aborted before delivery');
     }
 
-    const commit = commitWorktree(
-      task.worktreePath ?? project.rootPath,
-      `crew: ${task.title}`,
-    );
+    const commit = commitWorkspace(workspace, `crew: ${task.title}`);
     task = store.recordCommit(task.id, commit.sha);
 
-    const change = diffStats(task.worktreePath ?? project.rootPath, task.baseBranch);
+    const change = diffStatsWorkspace(workspace, task.baseBranch);
     if (change) {
       task = store.recordChangeStats(task.id, change);
     }
 
     if (requiresForgeDelivery(delivery)) {
-      const branch = task.branch ?? currentBranch(project.rootPath);
-      pushBranch(project.rootPath, branch);
+      const branch = task.branch ?? currentBranch(workspace.repoPath);
+      pushWorkspace(workspace, branch);
       const pullRequest = (forge as NonNullable<typeof forge>).createPullRequest({
         cwd: project.rootPath,
         base: task.baseBranch,

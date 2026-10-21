@@ -3,6 +3,10 @@ import type { RunProcessOptions } from '../adapters/backend/process';
 export interface RemoteRunner {
   host: string;
   options: string[];
+  /** Repository root on the remote host; when set the worktree lives there. */
+  repoPath?: string;
+  /** Root directory for the remote worktrees. */
+  worktreeRoot?: string;
 }
 
 export function shellQuote(value: string): string {
@@ -77,5 +81,14 @@ export function parseRunnerConfig(
   const options = Array.isArray(config.ssh_options)
     ? config.ssh_options.filter((item): item is string => typeof item === 'string')
     : [];
-  return { host, options };
+  const repoPath =
+    typeof config.repo_path === 'string' ? config.repo_path.trim() : '';
+  const worktreeRoot =
+    typeof config.worktree_root === 'string' ? config.worktree_root.trim() : '';
+  return {
+    host,
+    options,
+    repoPath: repoPath || undefined,
+    worktreeRoot: worktreeRoot || undefined,
+  };
 }

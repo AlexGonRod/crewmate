@@ -324,17 +324,18 @@ Referencia: ADR 0020.
 
 Estado: **completada**.
 
-Queda fuera del núcleo del roadmap, como mejora posterior, mover el worktree y el
-commit al host remoto.
+Queda fuera del núcleo del roadmap, como mejora posterior, mover también la
+base de datos y las forjas al host remoto.
 
 - Sesiones visibles en tmux/PTY, con capacidad de observar o intervenir.
   **Completada** (ADR 0023): `task run --session tmux` ejecuta el agente en una
   sesión `crew-<taskId>-<rol>` observable e intervenible, con la salida
   capturada en el log del run; `crew sessions list|kill` las gestiona.
-- Workers en hosts remotos alcanzables por SSH. **Completada** (ADR 0026): un
-  proyecto declara `runner.host` y el agente y la verificación se ejecutan por
-  `ssh`; el worktree tiene que ser visible en el host remoto. Queda mover el
-  worktree y el commit al host remoto como fase propia.
+- Workers en hosts remotos alcanzables por SSH. **Completada** (ADR 0026 y
+  ADR 0028): un proyecto declara `runner.host` y el agente y la verificación se
+  ejecutan por `ssh`. Con `runner.repo_path`, además, el worktree, el commit y
+  el push ocurren en el host remoto; sin él, el worktree tiene que ser visible
+  desde el host remoto.
 - Memoria de proyecto para no repetir contexto entre sesiones. **Completada**
   (ADR 0021): notas durables por proyecto que llegan al brief de cada agente y
   al briefing del capitán.
@@ -421,3 +422,4 @@ concurrencia.
 - ADR 0025: UI web de solo lectura.
 - ADR 0026: workers remotos por SSH.
 - ADR 0027: el daemon como servicio del sistema.
+- ADR 0028: workspace remoto con worktree, commit y push en el host remoto.

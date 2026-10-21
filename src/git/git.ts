@@ -44,6 +44,10 @@ export function resolveRepoRoot(inputPath: string): string {
   return result.stdout;
 }
 
+export function branchExists(rootPath: string, branch: string): boolean {
+  return git(['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], rootPath).status === 0;
+}
+
 export function detectDefaultBranch(rootPath: string): string {
   const remoteHead = git(
     ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'],
@@ -91,18 +95,6 @@ export function detectForge(remoteUrl: string | null): string | null {
   return 'external';
 }
 
-export function branchExists(rootPath: string, branch: string): boolean {
-  return git(['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], rootPath).status === 0;
-}
-
 export function currentBranch(worktreePath: string): string {
   return gitOrThrow(['rev-parse', '--abbrev-ref', 'HEAD'], worktreePath);
-}
-
-export function isWorktreeDirty(worktreePath: string): boolean {
-  return gitOrThrow(['status', '--porcelain'], worktreePath).length > 0;
-}
-
-export function gitPath(worktreePath: string, relativePath: string): string {
-  return gitOrThrow(['rev-parse', '--git-path', relativePath], worktreePath);
 }

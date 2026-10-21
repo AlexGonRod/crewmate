@@ -16,7 +16,7 @@ import type {
 } from '../core/types';
 import { readProjectConfig } from '../config/config';
 import type { ResolvedContext } from '../config/config';
-import { ensureWorktree, removeWorktree } from '../git/worktree';
+import { ensureWorkspace, removeWorkspace, type Workspace } from './workspace';
 import { assertHarnessAvailable } from '../adapters/harness/detect';
 import { getHarness, resolveHarnessId } from '../adapters/harness/registry';
 import { runProcess, type ProcessResult } from '../adapters/backend/process';
@@ -25,6 +25,7 @@ import type { RemoteRunner } from './runner';
 import {
   normalizeReport,
   parseReportFromOutput,
+  parseReportText,
   readReportFile,
   validateReport,
 } from '../protocol/report';
@@ -48,6 +49,7 @@ export interface RunStageOptions {
   signal?: AbortSignal;
   session?: 'tmux';
   remote?: RemoteRunner | null;
+  workspace: Workspace;
 }
 
 export interface RunStageResult {
@@ -86,9 +88,7 @@ export async function runStage(
   const attempt = store.nextAttempt(initialTask.id);
   const branch =
     initialTask.branch ?? `crew/${initialTask.id}-${slugify(initialTask.title)}`;
-  const worktreePath =
-    initialTask.worktreePath ??
-    path.join(context.paths.worktreesDir, slugify(project.name), initialTask.id);
+  const worktreePath = options.workspace.worktreePath;
 
   const taskDir = path.join(context.paths.tasksDir, initialTask.id);
   const runId = newId('run');
@@ -103,9 +103,7 @@ export async function runStage(
 
   let worktreeCreated = false;
   try {
-    const worktree = ensureWorktree({
-      repoPath: project.rootPath,
-      worktreePath,
+    const worktree = ensureWorkspace(options.workspace, {
       branch,
       baseBranch: initialTask.baseBranch,
     });
@@ -127,7 +125,7 @@ export async function runStage(
   } catch (error) {
     if (worktreeCreated) {
       try {
-        removeWorktree({ repoPath: project.rootPath, worktreePath, force: false });
+        removeWorkspace(options.workspace, { force: false });
       } catch {
         // Keep the original error; doctor can report a leftover worktree.
       }
@@ -141,7 +139,7 @@ export async function runStage(
     throw new Error(`Run not found after start: ${runId}`);
   }
 
-  mkdirSync(path.dirname(reportPath), { recursive: true });
+  options.workspace.ensureDir(path.dirname(reportPath));
 
   const projectConfig = readProjectConfig(project.rootPath);
   const brief = generateBrief({
@@ -166,9 +164,9 @@ export async function runStage(
     memories: store.listMemories(project.id),
   });
   writeFileSync(briefDataPath, brief, 'utf8');
-  writeFileSync(briefPath, brief, 'utf8');
+  options.workspace.writeFile(briefPath, brief);
   if (task.spec) {
-    writeFileSync(specPath, `${JSON.stringify(task.spec, null, 2)}\n`, 'utf8');
+    options.workspace.writeFile(specPath, `${JSON.stringify(task.spec, null, 2)}\n`);
   }
 
   const baseEnv: Record<string, string> = {
@@ -243,8 +241,11 @@ export async function runStage(
   let reportError = processError;
   if (!report && !processResult.timedOut) {
     try {
-      const raw =
-        readReportFile(reportPath) ?? parseReportFromOutput(processResult.outputTail);
+      const workspaceReport = options.workspace.readFile(reportPath);
+      const raw = workspaceReport
+        ? parseReportText(workspaceReport)
+        : (readReportFile(reportPath) ??
+          parseReportFromOutput(processResult.outputTail));
       if (raw) {
         const normalized = normalizeReport(raw, {
           taskId: task.id,
