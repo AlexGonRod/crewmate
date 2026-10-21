@@ -142,6 +142,7 @@ crew task clean tsk_... --force
 | `crew task reject <id> [motivo...] [--reason <texto>]` | Rechaza, guarda feedback y reencola al developer |
 | `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--scheduling <serial\|parallel>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
+| `crew ui [--port <n>] [--host <host>]` | Sirve un panel web de solo lectura con el estado del crew |
 | `crew sessions list` | Lista las sesiones visibles de agente (tmux) y cómo conectarse |
 | `crew sessions kill <name>` | Cierra una sesión visible |
 | `crew scout --project <ref> --title <t> --question <pregunta> [--queue]` | Crea una tarea de investigación que produce un informe |
@@ -393,6 +394,21 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## UI web
+
+```sh
+crew ui --port 4173
+```
+
+- Panel de solo lectura con el estado, lo que requiere atención y la tabla de
+  tareas (riesgo, CI, verificación, tester y PR), refrescado cada 3 s.
+- API JSON: `/api/summary`, `/api/tasks`, `/api/tasks/<id>` y
+  `/api/events?task=<id>`.
+- No expone métodos que muten el estado: toda acción sigue pasando por la CLI.
+- Escucha en `127.0.0.1` por defecto; publicarlo es una decisión explícita.
+
+Ver ADR 0025.
 
 ## Forjas
 

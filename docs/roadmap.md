@@ -337,7 +337,9 @@ Estado: **en curso** (4.1 completada).
   pipeline (sin verificación, tester, commit ni PR) que termina en `review`
   con un informe `crew.report/v3` guardado como artefacto `scout`, y
   `crew scout` lo crea en una línea.
-- UI web o servicio del sistema.
+- UI web o servicio del sistema. **Completada** (ADR 0025): `crew ui` sirve un
+  panel de solo lectura (resumen, tareas, eventos) en `127.0.0.1`, sin
+  dependencias externas. Queda el despliegue como servicio del sistema.
 - Soporte de más forges además de GitHub. **Completada** (ADR 0024): una
   interfaz `Forge` con implementaciones de GitHub (`gh`) y GitLab (`glab`);
   el motor, el merge conversacional y `task accept` ya no hablan con `gh`

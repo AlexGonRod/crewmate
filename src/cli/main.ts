@@ -6,6 +6,7 @@ import pc from 'picocolors';
 import { runDaemon, type DaemonTaskResult } from '../app/daemon';
 import { buildCaptainBrief, writeCaptainInstructions } from '../app/captain';
 import { mergeTask } from '../app/merge';
+import { startUiServer } from '../app/ui';
 import { killSession, listSessions, tmuxAvailable } from '../app/session';
 import { intakeProject } from '../app/intake';
 import { applyPlan, parsePlan, validatePlan } from '../app/plan';
@@ -1447,6 +1448,33 @@ function buildProgram(): Command {
         printJson({ killed: true, name });
       } else {
         console.log(`Session ${name} closed`);
+      }
+    });
+
+  program
+    .command('ui')
+    .description('serve a read-only web dashboard of the crew state')
+    .option('--port <n>', 'port to listen on', Number, 4173)
+    .option('--host <host>', 'host to bind', '127.0.0.1')
+    .action(async (options: { port: number; host: string }) => {
+      const context = loadContext({ dbPath: globalOptions().db });
+      const store = new Store(context.paths.dbPath);
+      try {
+        const server = await startUiServer(store, {
+          port: options.port,
+          host: options.host,
+        });
+        console.log(`crew ui listening on ${server.url}`);
+        console.log('Press Ctrl+C to stop');
+        await new Promise<void>((resolve) => {
+          const stop = (): void => {
+            void server.close().then(resolve);
+          };
+          process.once('SIGINT', stop);
+          process.once('SIGTERM', stop);
+        });
+      } finally {
+        store.close();
       }
     });
 
