@@ -361,6 +361,34 @@ export function pushWorkspace(workspace: Workspace, branch: string): void {
   );
 }
 
+export function diffText(
+  workspace: Workspace,
+  base: string,
+  head = 'HEAD',
+): string {
+  const result = workspace.git(
+    ['diff', `${base}...${head}`],
+    workspace.worktreePath,
+  );
+  if (result.status !== 0) {
+    const fallback = workspace.git(['diff', base], workspace.worktreePath);
+    return fallback.status === 0 ? fallback.stdout : '';
+  }
+  return result.stdout;
+}
+
+export function logText(
+  workspace: Workspace,
+  base: string,
+  head = 'HEAD',
+): string {
+  const result = workspace.git(
+    ['log', '--oneline', `${base}..${head}`],
+    workspace.worktreePath,
+  );
+  return result.status === 0 ? result.stdout : '';
+}
+
 export interface WorkspaceResolution {
   workspace: Workspace;
   runner: RemoteRunner | null;

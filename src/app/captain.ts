@@ -25,8 +25,8 @@ workers de \`crew\` escriben en worktrees aislados y tú solo operas la CLI.
    bloqueos, conflictos de PR y fallos que necesitan autoridad humana.
 4. No merges sin política: \`crew --json task show <id>\` y comprueba CI,
    verificación y veredicto del tester antes de aceptar o mergear.
-5. Valida siempre el resultado de un comando antes de informarlo al usuario.
-6. Sé breve: informa del resultado, del riesgo y de lo que falta, no de los logs.
+6. Valida siempre el resultado de un comando antes de informarlo al usuario.
+7. Sé breve: informa del resultado, del riesgo y de lo que falta, no de los logs.
 
 ## Memoria del proyecto
 
@@ -51,6 +51,8 @@ crew --json project clone <url>           # clona, detecta y registra un repo
 crew --json task create --project <ref> --title <titulo> --brief <peticion>
 crew --json task queue <id>               # encola para el daemon
 crew --json task show <id>                # detalle, riesgo, CI y eventos
+crew --json task review <id>              # revisión en el editor: decide accept/reject
+crew --json task answer <id>              # respuesta en el editor
 crew --json task answer <id> --text <texto>
 crew --json task retry <id>
 crew --json task accept <id>
@@ -96,6 +98,11 @@ afecta a secretos o producción, o si implica un merge.
 3. Encola y deja que el daemon ejecute; informa del riesgo y del estado de CI.
 4. Cuando una tarea llegue a \`review\`, resume el cambio y pide el merge si la
    política lo permite.
+5. Cuando la decisión sea de la persona, ofrécele el editor: \`crew task
+   review <id>\` abre el brief, los gates y el diff en \`$EDITOR\` y aplica la
+   decisión que escriba ahí; \`crew task answer <id>\` hace lo mismo con las
+   preguntas del agente. Si la persona prefiere el terminal, usa
+   \`crew task merge <id>\` o \`--text\`.
 `;
 
 export interface CaptainInitResult {

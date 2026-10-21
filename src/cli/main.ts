@@ -47,6 +47,7 @@ import {
   removeWorkspace,
   resolveWorkspace,
 } from '../app/workspace';
+import { answerTaskInEditor, reviewTask } from '../app/review-flow';
 import { getForge } from '../forges';
 import {
   normalizeReport,
@@ -668,6 +669,60 @@ function buildProgram(): Command {
     );
 
   task
+    .command('review <id>')
+    .description('review a task in the editor and accept or reject it there')
+    .option('--by <who>', 'who authorized the decision', 'user')
+    .option('--method <method>', 'merge method: merge, squash or rebase')
+    .option('--delete-branch', 'delete the branch after merging')
+    .option('--max-diff <lines>', 'maximum number of diff lines to show', Number, 2000)
+    .option('--no-open', 'write the review buffer without opening the editor')
+    .action(
+      async (
+        id: string,
+        options: {
+          by: string;
+          method?: string;
+          deleteBranch?: boolean;
+          maxDiff: number;
+          open?: boolean;
+        },
+      ) => {
+        const method = options.method as MergeMethod | undefined;
+        if (method && !['merge', 'squash', 'rebase'].includes(method)) {
+          throw new CrewError('INVALID_MERGE_METHOD', `Unknown merge method: ${method}`);
+        }
+        const outcome = await withStore((store, context) =>
+          reviewTask(store, context, {
+            taskId: id,
+            method,
+            deleteBranch: options.deleteBranch,
+            authorizedBy: options.by,
+            maxDiffLines: options.maxDiff,
+            open: options.open,
+          }),
+        );
+        if (globalOptions().json) {
+          printJson(outcome);
+          return;
+        }
+        console.log(`Review buffer: ${outcome.bufferPath}`);
+        if (outcome.decision.decision === 'none') {
+          console.log('No decision written; nothing changed');
+          return;
+        }
+        if (outcome.decision.decision === 'reject') {
+          console.log(`Task ${outcome.taskId} rejected: ${outcome.reason ?? 'no reason given'}`);
+          console.log(`State: ${outcome.taskState}`);
+          return;
+        }
+        console.log(`Task ${outcome.taskId}: ${outcome.taskState}`);
+        if (outcome.merge) {
+          console.log(`Merge: ${outcome.merge.state} (${outcome.merge.method}) - ${outcome.merge.reason}`);
+        }
+      },
+    );
+
+  task
     .command('run <id>')
     .description('run a task in an isolated worktree')
     .option('--harness <id>', 'developer harness adapter: fake, opencode, or auto')
@@ -848,15 +903,32 @@ function buildProgram(): Command {
 
   task
     .command('answer <id>')
-    .description('answer a waiting task and queue a new attempt')
-    .requiredOption('--text <text>', 'answer text')
-    .action(async (id: string, options: { text: string }) => {
-      const updated = await withStore((store) => store.answerTask(id, options.text));
-      if (globalOptions().json) {
-        printJson({ task: updated });
-      } else {
-        console.log(`Task ${updated.id} is now ${updated.state}`);
+    .description('answer a waiting task, in the editor by default')
+    .option('--text <text>', 'answer text (skips the editor)')
+    .action(async (id: string, options: { text?: string }) => {
+      if (options.text) {
+        const answer = options.text;
+        const updated = await withStore((store) => store.answerTask(id, answer));
+        if (globalOptions().json) {
+          printJson({ task: updated });
+        } else {
+          console.log(`Task ${updated.id} is now ${updated.state}`);
+        }
+        return;
       }
+      const outcome = await withStore((store, context) =>
+        answerTaskInEditor(store, context, { taskId: id }),
+      );
+      if (globalOptions().json) {
+        printJson(outcome);
+        return;
+      }
+      if (!outcome.answered) {
+        console.log(`No answer written; task ${outcome.taskId} is still ${outcome.taskState}`);
+        console.log(`buffer: ${outcome.bufferPath}`);
+        return;
+      }
+      console.log(`Task ${outcome.taskId} is now ${outcome.taskState}`);
     });
 
   task

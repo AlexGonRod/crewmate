@@ -1891,6 +1891,49 @@ export class Store {
     });
   }
 
+  recordReview(
+    taskId: string,
+    input: {
+      decision: string;
+      reason: string | null;
+      bufferPath: string;
+      authorizedBy: string;
+      diffLines: number;
+    },
+  ): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      const createdAt = nowIso();
+      this.db
+        .prepare(
+          `INSERT INTO artifacts (id, task_id, run_id, kind, ref, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          newId('art'),
+          task.id,
+          null,
+          'review',
+          `${input.decision}${input.reason ? `: ${input.reason}` : ''}`,
+          JSON.stringify(input),
+          createdAt,
+        );
+      this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'task.reviewed',
+        payload: {
+          decision: input.decision,
+          reason: input.reason,
+          authorized_by: input.authorizedBy,
+          buffer_path: input.bufferPath,
+        },
+      });
+      return this.getTaskOrThrow(task.id);
+    });
+  }
+
   recordScoutReport(taskId: string, report: Report): Task {
     return this.transaction(() => {
       const task = this.getTaskOrThrow(taskId);

@@ -395,6 +395,32 @@ La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
 
+## Revisión en el editor
+
+```sh
+crew task review <id>     # abre el brief, los gates y el diff en $EDITOR
+crew task answer <id>     # responde a las preguntas del agente en el editor
+```
+
+- `crew task review` escribe un *review buffer* con el brief, el riesgo, el
+  estado de los gates y el diff completo, y lo abre en `$EDITOR` (`CREW_EDITOR`
+  > `VISUAL` > `EDITOR` > `nvim`).
+- Decides escribiendo dos líneas:
+
+  ```
+  crew-decision: accept
+  crew-reason: it matches the brief
+  ```
+
+  `accept` merges (pasando las mismas puertas que `crew task merge`),
+  `reject` devuelve la tarea con el motivo, y cualquier otra cosa (incluido
+  cerrar sin tocar nada) **no cambia nada**.
+- `crew task answer` hace lo mismo con las preguntas de una tarea en
+  `waiting_input`; `--text` sigue disponible para scripts.
+- La decisión queda registrada como artefacto `review` de la tarea.
+
+Ver ADR 0030.
+
 ## Daemon como servicio
 
 ```sh
