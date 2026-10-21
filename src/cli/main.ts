@@ -42,7 +42,11 @@ import type {
   TaskSummary,
 } from '../core/types';
 import { runDoctor } from '../doctor/doctor';
-import { removeWorkspace, resolveWorkspace } from '../app/workspace';
+import {
+  createLocationResolver,
+  removeWorkspace,
+  resolveWorkspace,
+} from '../app/workspace';
 import { getForge } from '../forges';
 import {
   normalizeReport,
@@ -178,6 +182,13 @@ function renderTaskDetail(
   console.log(`Base:      ${task.baseBranch}`);
   console.log(`Branch:    ${task.branch ?? '-'}`);
   console.log(`Worktree:  ${task.worktreePath ?? '-'}`);
+  console.log(
+    `Runs on:   ${
+      summary.location.where === 'local'
+        ? 'local'
+        : `${summary.location.host ?? 'remote'} (${summary.location.where})`
+    }`,
+  );
   console.log(`Harness:   ${task.harnessId ?? '-'}`);
   console.log(`Stage:     ${task.stage} (review iterations: ${task.reviewIterations})`);
   console.log(`Commit:    ${task.commitSha ?? '-'}`);
@@ -545,9 +556,14 @@ function buildProgram(): Command {
     .description('list tasks')
     .option('--state <state>', 'filter by task state')
     .action(async (options: { state?: string }) => {
-      const tasks = await withStore((store) =>
-        store.listTasks(options.state as TaskState | undefined),
-      );
+      const tasks = await withStore((store) => {
+        const listed = store.listTasks(options.state as TaskState | undefined);
+        const resolveLocation = createLocationResolver();
+        return listed.map((item) => ({
+          ...item,
+          location: resolveLocation(store.getProject(item.projectId), item),
+        }));
+      });
       if (globalOptions().json) {
         printJson({ tasks });
       } else {
@@ -560,6 +576,10 @@ function buildProgram(): Command {
             title: item.title,
             harness: item.harnessId ?? '-',
             pr: item.prUrl ? 'yes' : '-',
+            host:
+              item.location.where === 'local'
+                ? 'local'
+                : (item.location.host ?? 'remote'),
             updated: item.updatedAt,
           })),
           [
@@ -570,6 +590,7 @@ function buildProgram(): Command {
             { key: 'title', label: 'TITLE' },
             { key: 'harness', label: 'HARNESS' },
             { key: 'pr', label: 'PR' },
+            { key: 'host', label: 'HOST' },
             { key: 'updated', label: 'UPDATED' },
           ],
         );
@@ -1712,6 +1733,10 @@ function buildProgram(): Command {
             verify: summary.verification.state,
             tester: summary.tester?.verdict ?? '-',
             pr: summary.pr?.state ?? '-',
+            host:
+              summary.location.where === 'local'
+                ? 'local'
+                : (summary.location.host ?? 'remote'),
             title: summary.title,
           })),
           [
@@ -1722,6 +1747,7 @@ function buildProgram(): Command {
             { key: 'verify', label: 'VERIFY' },
             { key: 'tester', label: 'TESTER' },
             { key: 'pr', label: 'PR' },
+            { key: 'host', label: 'HOST' },
             { key: 'title', label: 'TITLE' },
           ],
         );

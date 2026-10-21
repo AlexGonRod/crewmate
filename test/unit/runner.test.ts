@@ -18,8 +18,10 @@ describe('remote runner', () => {
     expect(command).toBe('ssh');
     expect(args[0]).toBe('-o');
     expect(args[1]).toBe('BatchMode=yes');
-    expect(args[2]).toBe('user@server');
-    const script = args[3] as string;
+    expect(args).toContain('-o');
+    expect(args).toContain('ConnectTimeout=10');
+    expect(args[args.length - 2]).toBe('user@server');
+    const script = args[args.length - 1] as string;
     expect(script).toContain("cd '/srv/worktrees/task'");
     expect(script).toContain("CREW_TASK_ID='tsk_1'");
     expect(script).toContain("'node'");
@@ -35,7 +37,7 @@ describe('remote runner', () => {
       '/tmp',
       { CREW_TITLE: "it's here" },
     );
-    expect(args[1]).toContain("CREW_TITLE='it'\\''s here'");
+    expect(args[args.length - 1]).toContain("CREW_TITLE='it'\\''s here'");
   });
 
   it('parses the runner configuration', () => {

@@ -9,6 +9,15 @@ export interface RemoteRunner {
   worktreeRoot?: string;
 }
 
+/**
+ * Safety options for every ssh call: never prompt for a password and never
+ * wait forever for a host that does not answer. The user options come first
+ * so they can override them.
+ */
+export function safeSshOptions(options: string[]): string[] {
+  return [...options, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10'];
+}
+
 export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
@@ -35,7 +44,7 @@ export function buildRemoteCommand(
   const script = parts.join(' ');
   return {
     command: 'ssh',
-    args: [...remote.options, remote.host, script],
+    args: [...safeSshOptions(remote.options), remote.host, script],
   };
 }
 

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { readProjectConfig } from '../config/config';
+import { parseRunnerConfig } from './runner';
 import { CrewError } from '../core/errors';
 import type { Memory, Project, TaskState } from '../core/types';
 import { summarizeDetail } from './summary';
@@ -139,6 +140,11 @@ export interface CaptainProjectBrief {
   autoMerge: string | null;
   ci: string | null;
   verify: string[];
+  runner: {
+    host: string;
+    mode: 'shared' | 'remote';
+    repoPath: string | null;
+  } | null;
 }
 
 export interface CaptainBrief {
@@ -179,6 +185,7 @@ const ATTENTION_REASONS: Record<string, string> = {
 
 function projectBrief(project: Project): CaptainProjectBrief {
   const config = readProjectConfig(project.rootPath);
+  const runner = parseRunnerConfig(config?.runner);
   return {
     id: project.id,
     name: project.name,
@@ -189,6 +196,13 @@ function projectBrief(project: Project): CaptainProjectBrief {
     autoMerge: config?.auto_merge?.method ?? null,
     ci: config?.ci?.provider ?? null,
     verify: config?.verify ?? [],
+    runner: runner
+      ? {
+          host: runner.host,
+          mode: runner.repoPath ? 'remote' : 'shared',
+          repoPath: runner.repoPath ?? null,
+        }
+      : null,
   };
 }
 

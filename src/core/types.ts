@@ -75,6 +75,15 @@ export interface RiskAssessment {
   change: ChangeStats;
 }
 
+export interface TaskLocation {
+  /** local: everything runs here. shared: the agent runs on a remote host that
+   *  sees the same worktree. remote: the worktree and the commits live on the
+   *  remote host. */
+  where: 'local' | 'shared' | 'remote';
+  host: string | null;
+  path: string | null;
+}
+
 export interface TaskSummary {
   taskId: string;
   title: string;
@@ -114,6 +123,7 @@ export interface TaskSummary {
   lastError: string | null;
   dependsOn: string[];
   commitSha: string | null;
+  location: TaskLocation;
   updatedAt: string;
 }
 

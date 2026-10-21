@@ -191,6 +191,43 @@ process.exit(result.status === null ? 1 : result.status);
     expect(entries).toEqual([]);
   });
 
+  it('shows where the task runs and checks the remote host in the doctor', () => {
+    const created = cli([
+      '--json',
+      'task',
+      'create',
+      '--project',
+      'demo',
+      '--title',
+      'Remote observability',
+      '--brief',
+      'Create a marker file',
+      '--methodology',
+      'free',
+    ]);
+    expect(created.status, created.stderr).toBe(0);
+    const id = created.json.task.id as string;
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    expect(shown.status, shown.stderr).toBe(0);
+    expect(shown.json.summary.location.where).toBe('remote');
+    expect(shown.json.summary.location.host).toBe('builder@remote');
+
+    const listed = cli(['--json', 'task', 'list']);
+    expect(listed.status, listed.stderr).toBe(0);
+    const summary = (listed.json.tasks as Array<{ id: string; location: { where: string } }>).find(
+      (entry) => entry.id === id,
+    );
+    expect(summary?.location.where).toBe('remote');
+
+    const doctor = cli(['--json', 'doctor']);
+    const checks = (doctor.json.checks as Array<{ name: string; status: string }>).filter(
+      (check) => check.name.startsWith('runner.demo'),
+    );
+    expect(checks.map((check) => check.name)).toContain('runner.demo.host');
+    expect(checks.every((check) => check.status === 'ok')).toBe(true);
+  });
+
   it('removes the remote worktree on clean', () => {
     const created = cli([
       '--json',

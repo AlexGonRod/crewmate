@@ -56,7 +56,7 @@ const DASHBOARD = `<!doctype html>
 <div class="meta" id="meta">loading…</div>
 <div id="attention"></div>
 <table id="tasks"><thead><tr>
-  <th>ID</th><th>State</th><th>Risk</th><th>CI</th><th>Verify</th><th>Tester</th><th>PR</th><th>Title</th>
+  <th>ID</th><th>State</th><th>Risk</th><th>CI</th><th>Verify</th><th>Tester</th><th>PR</th><th>Host</th><th>Title</th>
 </tr></thead><tbody></tbody></table>
 <script>
 async function refresh() {
@@ -92,6 +92,9 @@ async function refresh() {
       '<td>' + task.verification.state + '</td>' +
       '<td>' + (task.tester ? (task.tester.verdict || task.tester.status) : '-') + '</td>' +
       '<td>' + (task.pr ? task.pr.state : '-') + '</td>' +
+      '<td>' + (task.location && task.location.where !== 'local'
+        ? task.location.host
+        : 'local') + '</td>' +
       '<td>' + task.title + '</td>';
     body.appendChild(row);
   }

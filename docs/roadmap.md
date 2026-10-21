@@ -423,3 +423,4 @@ concurrencia.
 - ADR 0026: workers remotos por SSH.
 - ADR 0027: el daemon como servicio del sistema.
 - ADR 0028: workspace remoto con worktree, commit y push en el host remoto.
+- ADR 0029: observabilidad y diagnóstico del workspace remoto.

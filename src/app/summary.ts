@@ -4,9 +4,11 @@ import type {
   MergeResult,
   Report,
   TaskDetail,
+  TaskLocation,
   TaskSummary,
   VerificationResult,
 } from '../core/types';
+import { describeTaskLocation } from './workspace';
 import { assessRisk } from '../risk/risk';
 
 function latestArtifact<T>(detail: TaskDetail, kind: string): T | null {
@@ -44,7 +46,10 @@ function latestVerifications(detail: TaskDetail): VerificationResult[] {
   return detail.verifications.filter((verification) => verification.runId === developerRun.id);
 }
 
-export function summarizeDetail(detail: TaskDetail): TaskSummary {
+export function summarizeDetail(
+  detail: TaskDetail,
+  options: { location?: TaskLocation } = {},
+): TaskSummary {
   const { task } = detail;
 
   const change = parseChange(detail);
@@ -126,6 +131,7 @@ export function summarizeDetail(detail: TaskDetail): TaskSummary {
     lastError: task.lastError,
     dependsOn: detail.dependencies,
     commitSha: task.commitSha,
+    location: options.location ?? describeTaskLocation(detail.project, task),
     updatedAt: task.updatedAt,
   };
 }

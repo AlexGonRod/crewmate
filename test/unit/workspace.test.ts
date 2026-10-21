@@ -13,7 +13,9 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Project, Task } from '../../src/core/types';
 import {
+  checkRemoteRunner,
   commitWorkspace,
+  describeTaskLocation,
   diffStatsWorkspace,
   ensureWorkspace,
   LocalWorkspace,
@@ -288,5 +290,110 @@ process.exit(result.status === null ? 1 : result.status);
     expect(commit.committed).toBe(true);
     const stats = diffStatsWorkspace(workspace, 'main');
     expect(stats?.files).toBe(1);
+  });
+});
+
+describe('task location', () => {
+  function projectWithRunner(runner: string): Project {
+    const dir = tempDir();
+    mkdirSync(path.join(dir, '.crew'), { recursive: true });
+    writeFileSync(
+      path.join(dir, '.crew', 'config.yaml'),
+      ['runner:', runner].join('\n'),
+      'utf8',
+    );
+    return { ...project(dir) };
+  }
+
+  it('is local without a runner', () => {
+    const location = describeTaskLocation(project('/repo'), task());
+    expect(location).toEqual({ where: 'local', host: null, path: null });
+  });
+
+  it('is shared when the runner has no repo_path', () => {
+    const location = describeTaskLocation(
+      projectWithRunner('  host: builder@server'),
+      task(),
+    );
+    expect(location.where).toBe('shared');
+    expect(location.host).toBe('builder@server');
+  });
+
+  it('is remote when the runner declares a repo_path', () => {
+    const location = describeTaskLocation(
+      projectWithRunner('  host: builder@server\n  repo_path: /srv/repos/demo'),
+      task(),
+    );
+    expect(location.where).toBe('remote');
+    expect(location.host).toBe('builder@server');
+  });
+});
+
+describe('remote runner checks', () => {
+  it('checks the host, the repository and the worktree root', () => {
+    const dir = tempDir();
+    const repo = makeRepo(dir);
+    const bin = path.join(dir, 'bin');
+    mkdirSync(bin, { recursive: true });
+    const shim = path.join(bin, 'ssh');
+    writeFileSync(
+      shim,
+      `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+const script = args[args.length - 1];
+const result = spawnSync('/bin/sh', ['-c', script], { encoding: 'utf8' });
+process.stdout.write(result.stdout || '');
+process.stderr.write(result.stderr || '');
+process.exit(result.status === null ? 1 : result.status);
+`,
+    );
+    chmodSync(shim, 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
+    try {
+      const checks = checkRemoteRunner(project(repo), {
+        runner: { host: 'builder@server', repo_path: repo },
+      });
+      const names = checks.map((check) => check.name);
+      expect(names).toContain('runner.demo.host');
+      expect(names).toContain('runner.demo.repo');
+      expect(names).toContain('runner.demo.worktrees');
+      expect(checks.every((check) => check.status === 'ok')).toBe(true);
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
+  it('reports a repository that is missing on the host', () => {
+    const dir = tempDir();
+    const bin = path.join(dir, 'bin');
+    mkdirSync(bin, { recursive: true });
+    const shim = path.join(bin, 'ssh');
+    writeFileSync(
+      shim,
+      `#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+const script = args[args.length - 1];
+const result = spawnSync('/bin/sh', ['-c', script], { encoding: 'utf8' });
+process.stdout.write(result.stdout || '');
+process.stderr.write(result.stderr || '');
+process.exit(result.status === null ? 1 : result.status);
+`,
+    );
+    chmodSync(shim, 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${previousPath ?? ''}`;
+    try {
+      const checks = checkRemoteRunner(project(dir), {
+        runner: { host: 'builder@server', repo_path: path.join(dir, 'missing') },
+      });
+      const repo = checks.find((check) => check.name.endsWith('.repo'));
+      expect(repo?.status).toBe('error');
+      expect(repo?.detail).toContain('no git repository');
+    } finally {
+      process.env.PATH = previousPath;
+    }
   });
 });

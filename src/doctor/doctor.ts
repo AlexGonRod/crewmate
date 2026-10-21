@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { isPidAlive } from '../core/process';
 import { isTerminalTaskState } from '../core/state';
 import { readProjectConfig, type ResolvedContext } from '../config/config';
-import { resolveWorkspace } from '../app/workspace';
+import { checkRemoteRunner, resolveWorkspace } from '../app/workspace';
 import { detectHarness } from '../adapters/harness/detect';
 import { fakeAgentPath } from '../adapters/harness/fake';
 import { getHarness, listHarnessAdapters } from '../adapters/harness/registry';
@@ -185,6 +185,15 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
           detail: `stale run: state=${run.state} pid=${run.pid ?? 'none'}`,
         });
       }
+    }
+  }
+
+  for (const project of store.listProjects()) {
+    for (const check of checkRemoteRunner(
+      project,
+      readProjectConfig(project.rootPath),
+    )) {
+      checks.push(check);
     }
   }
 

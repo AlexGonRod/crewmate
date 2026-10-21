@@ -441,7 +441,15 @@ crew task run tsk_... --host builder@server   # sobrescribe el host
   base de datos, los informes y los logs siguen siendo locales, y el pull
   request se crea desde aquí (ADR 0028).
 
-Ver ADR 0026 y ADR 0028.
+- `crew doctor` comprueba que el host responde, que el repositorio existe
+  allí y que la raíz de worktrees se puede escribir. Todas las llamadas a
+  `ssh` son no interactivas (`BatchMode=yes`, `ConnectTimeout=10`), así que un
+  host que pide contraseña falla en segundos en vez de colgar el daemon.
+- La ubicación de cada tarea (`local`, `shared` o `remote`) aparece en
+  `task show`, `task list`, `crew status`, el panel web y el briefing del
+  capitán.
+
+Ver ADR 0026, ADR 0028 y ADR 0029.
 
 ## UI web
 

@@ -11,8 +11,13 @@ import { CrewError } from '../core/errors';
 import { slugify } from '../core/slug';
 import type { ChangeStats, Project, Task } from '../core/types';
 import { git, gitOrThrow, type GitResult } from '../git/git';
-import { parseRunnerConfig, shellQuote, type RemoteRunner } from './runner';
-import type { ProjectConfig } from '../config/config';
+import {
+  parseRunnerConfig,
+  safeSshOptions,
+  shellQuote,
+  type RemoteRunner,
+} from './runner';
+import { readProjectConfig, type ProjectConfig } from '../config/config';
 
 /**
  * Where the code of a task lives.
@@ -90,10 +95,11 @@ export class RemoteWorkspace implements Workspace {
   exec(script: string): GitResult {
     const result = spawnSync(
       'ssh',
-      [...this.runner.options, this.runner.host, script],
+      [...safeSshOptions(this.runner.options), this.runner.host, script],
       {
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,
+        timeout: 300_000,
       },
     );
     if (result.error) {
@@ -421,3 +427,131 @@ export function resolveWorkspace(
   };
 }
 
+export type TaskLocationKind = 'local' | 'shared' | 'remote';
+
+export interface TaskLocation {
+  /** local: everything runs here. shared: the agent runs on a remote host that
+   *  sees the same worktree. remote: the worktree and the commits live on the
+   *  remote host. */
+  where: TaskLocationKind;
+  host: string | null;
+  path: string | null;
+}
+
+export type LocationResolver = (project: Project | null, task: Task) => TaskLocation;
+
+/**
+ * Resolves the location of a task, caching the project configuration so a list
+ * of tasks does not read the same file once per task.
+ */
+export function createLocationResolver(): LocationResolver {
+  const cache = new Map<string, { where: TaskLocationKind; host: string } | null>();
+  return (project, task) => {
+    if (!project) {
+      return { where: 'local', host: null, path: task.worktreePath };
+    }
+    let entry = cache.get(project.id);
+    if (entry === undefined) {
+      let projectConfig: ProjectConfig | null = null;
+      try {
+        projectConfig = readProjectConfig(project.rootPath);
+      } catch {
+        projectConfig = null;
+      }
+      const runner = parseRunnerConfig(projectConfig?.runner);
+      entry = runner
+        ? { where: runner.repoPath ? 'remote' : 'shared', host: runner.host }
+        : null;
+      cache.set(project.id, entry);
+    }
+    return {
+      where: entry?.where ?? 'local',
+      host: entry?.host ?? null,
+      path: task.worktreePath,
+    };
+  };
+}
+
+export function describeTaskLocation(
+  project: Project | null,
+  task: Task,
+): TaskLocation {
+  return createLocationResolver()(project, task);
+}
+
+export interface RemoteCheck {
+  name: string;
+  status: 'ok' | 'warn' | 'error';
+  detail: string;
+}
+
+/**
+ * Checks that a remote runner is usable: the host answers, the repository
+ * exists there and the worktree root is writable.
+ */
+export function checkRemoteRunner(
+  project: Project,
+  projectConfig: ProjectConfig | null,
+): RemoteCheck[] {
+  const runner = parseRunnerConfig(projectConfig?.runner);
+  if (!runner) {
+    return [];
+  }
+  const checks: RemoteCheck[] = [];
+  const workspace = new RemoteWorkspace(runner.repoPath ?? '.', '.', runner);
+
+  const reach = workspace.exec('true');
+  checks.push({
+    name: `runner.${project.name}.host`,
+    status: reach.status === 0 ? 'ok' : 'error',
+    detail:
+      reach.status === 0
+        ? `reachable: ${runner.host}`
+        : `cannot reach ${runner.host}: ${reach.stderr.trim() || `exit ${reach.status}`}`,
+  });
+  if (reach.status !== 0) {
+    return checks;
+  }
+
+  if (runner.repoPath) {
+    const repo = workspace.exec(
+      `git -C ${shellQuote(runner.repoPath)} rev-parse --git-dir`,
+    );
+    checks.push({
+      name: `runner.${project.name}.repo`,
+      status: repo.status === 0 ? 'ok' : 'error',
+      detail:
+        repo.status === 0
+          ? `repository found: ${runner.repoPath}`
+          : `no git repository at ${runner.repoPath} on ${runner.host}`,
+    });
+  } else {
+    checks.push({
+      name: `runner.${project.name}.mode`,
+      status: 'warn',
+      detail:
+        'no runner.repo_path: the remote host has to see the same worktree path',
+    });
+  }
+
+  const worktreeRoot = runner.worktreeRoot
+    ? runner.worktreeRoot
+    : runner.repoPath
+      ? path.join(path.dirname(runner.repoPath), 'crew-worktrees')
+      : null;
+  if (worktreeRoot) {
+    const writable = workspace.exec(
+      `mkdir -p ${shellQuote(worktreeRoot)} && test -w ${shellQuote(worktreeRoot)}`,
+    );
+    checks.push({
+      name: `runner.${project.name}.worktrees`,
+      status: writable.status === 0 ? 'ok' : 'error',
+      detail:
+        writable.status === 0
+          ? `worktree root ready: ${worktreeRoot}`
+          : `cannot write the worktree root ${worktreeRoot} on ${runner.host}`,
+    });
+  }
+
+  return checks;
+}
