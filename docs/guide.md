@@ -97,6 +97,10 @@ crew task create --project mi-proyecto \
 crew task run tsk_... --harness auto
 ```
 
+Con el harness `opencode`, el brief (que empieza por `---` de YAML) llega al
+agente por la entrada estándar, no como argumento: el agente lo lee y deja el
+informe en el worktree.
+
 O encola y deja que el daemon la coja:
 
 ```sh

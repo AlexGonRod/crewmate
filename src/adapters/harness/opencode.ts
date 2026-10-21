@@ -12,7 +12,7 @@ const manifest: HarnessManifest = {
     execution: {
       modes: ['oneshot'],
       command: ['opencode', 'run', '--format', 'json', '--auto'],
-      prompt: { mode: 'argument' },
+      prompt: { mode: 'stdin' },
       timeout_seconds: 1800,
     },
     provisioning: { supported: true, format: 'json' },
@@ -41,7 +41,9 @@ export class OpencodeHarness implements HarnessAdapter {
     if (spec.model) {
       args.push('--model', spec.model);
     }
-    args.push('--title', spec.task.title, spec.brief);
+    // The brief is delivered on stdin, not as an argument: it starts with
+    // YAML front matter ("---") and the CLI would parse it as an option.
+    args.push('--title', spec.task.title);
     return {
       command: 'opencode',
       args,

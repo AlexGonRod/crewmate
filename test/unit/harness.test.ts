@@ -148,7 +148,7 @@ describe('harness detection', () => {
 });
 
 describe('opencode adapter', () => {
-  it('launches a one-shot run with the brief as the prompt', () => {
+  it('launches a one-shot run and delivers the brief on stdin', () => {
     const launch = new OpencodeHarness().buildLaunch({
       task: makeTask(),
       project: makeProject(),
@@ -170,8 +170,10 @@ describe('opencode adapter', () => {
       '--auto',
       '--title',
       'Add health endpoint',
-      'Implement the health endpoint',
     ]);
+    // The brief is not an argument: it starts with YAML front matter and the
+    // CLI would parse it as an option.
+    expect(launch.args.join(' ')).not.toContain('Implement the health endpoint');
     expect(launch.env.CREW_TASK_ID).toBe('tsk_test');
     expect(launch.env.CREW_REPORT_PATH).toBe('/tmp/worktree/.crew/report.json');
     expect(launch.env.CREW_EXTRA).toBe('1');
