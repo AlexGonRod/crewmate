@@ -12,6 +12,8 @@ describe('task state machine', () => {
     expect(canTransitionTask('draft', 'queued')).toBe(true);
     expect(canTransitionTask('queued', 'starting')).toBe(true);
     expect(canTransitionTask('queued', 'failed')).toBe(true);
+    expect(canTransitionTask('queued', 'blocked')).toBe(true);
+    expect(canTransitionTask('blocked', 'queued')).toBe(true);
     expect(canTransitionTask('starting', 'running')).toBe(true);
     expect(canTransitionTask('running', 'done')).toBe(true);
     expect(canTransitionTask('running', 'failed')).toBe(true);

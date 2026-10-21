@@ -138,10 +138,73 @@ describe('captain layer', () => {
     expect(text.stdout).toContain(taskId);
   });
 
+  it('applies a plan and runs the tasks respecting their dependencies', () => {
+    const planPath = path.join(tempRoot, 'plan.yaml');
+    writeFileSync(
+      planPath,
+      [
+        'schema: crew.plan/v1',
+        'tasks:',
+        '  - key: api',
+        '    title: Plan API task',
+        '    brief: Implement the health endpoint',
+        '    acceptance:',
+        '      - Returns 200',
+        '  - key: docs',
+        '    title: Plan docs task',
+        '    brief: Document the health endpoint',
+        '    acceptance:',
+        '      - Mentions the endpoint',
+        '    depends_on:',
+        '      - api',
+        '',
+      ].join('\n'),
+    );
+
+    const validation = cli(['--json', 'plan', 'validate', planPath]);
+    expect(validation.status, validation.stderr).toBe(0);
+    expect(validation.json.ok).toBe(true);
+    expect(validation.json.groups).toEqual([['api'], ['docs']]);
+
+    const applied = cli(['--json', 'plan', 'apply', planPath, '--queue']);
+    expect(applied.status, applied.stderr).toBe(0);
+    expect(applied.json.tasks).toHaveLength(2);
+    const api = applied.json.tasks.find((task: any) => task.key === 'api');
+    const docs = applied.json.tasks.find((task: any) => task.key === 'docs');
+    expect(api.state).toBe('queued');
+    expect(docs.state).toBe('queued');
+
+    const shown = cli(['--json', 'task', 'show', docs.id]);
+    expect(shown.json.dependencies).toEqual([api.id]);
+
+    const run = cli([
+      '--json',
+      'daemon',
+      'run',
+      '--max-tasks',
+      '2',
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=spec_success',
+      '--quiet',
+    ]);
+    expect(run.status, run.stderr).toBe(0);
+
+    const apiShown = cli(['--json', 'task', 'show', api.id]);
+    const docsShown = cli(['--json', 'task', 'show', docs.id]);
+    expect(apiShown.json.task.state).toBe('review');
+    expect(docsShown.json.task.state).toBe('review');
+    const apiEnded = apiShown.json.runs.at(-1).endedAt as string;
+    const docsStarted = docsShown.json.runs.at(0).startedAt as string;
+    expect(Date.parse(docsStarted)).toBeGreaterThanOrEqual(Date.parse(apiEnded));
+  });
+
   it('limits the briefing to a single project', () => {
     const brief = cli(['--json', 'captain', 'brief', '--project', 'demo']);
     expect(brief.status, brief.stderr).toBe(0);
-    expect(brief.json.totalTasks).toBe(1);
+    expect(brief.json.totalTasks).toBeGreaterThan(0);
+    expect(brief.json.tasks.every((task: any) => task.taskId)).toBe(true);
 
     const unknown = cli(['--json', 'captain', 'brief', '--project', 'nope']);
     expect(unknown.status).toBe(1);

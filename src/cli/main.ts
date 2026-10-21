@@ -6,6 +6,7 @@ import pc from 'picocolors';
 import { runDaemon, type DaemonTaskResult } from '../app/daemon';
 import { buildCaptainBrief, writeCaptainInstructions } from '../app/captain';
 import { intakeProject } from '../app/intake';
+import { applyPlan, parsePlan, validatePlan } from '../app/plan';
 import { addProject, initProject } from '../app/projects';
 import { detectHarness } from '../adapters/harness/detect';
 import { listHarnessAdapters } from '../adapters/harness/registry';
@@ -1127,6 +1128,84 @@ function buildProgram(): Command {
           };
           process.once('SIGINT', stop);
           process.once('SIGTERM', stop);
+        });
+      },
+    );
+
+  const plan = program
+    .command('plan')
+    .description('validate and apply multi-task plans');
+
+  plan
+    .command('validate <file>')
+    .description('validate a plan file and show the execution groups')
+    .action(async (file: string) => {
+      const validation = await withStore(() => {
+        const text = readFileSync(path.resolve(file), 'utf8');
+        return validatePlan(parsePlan(text));
+      });
+      if (globalOptions().json) {
+        printJson(validation);
+        return;
+      }
+      if (validation.errors.length > 0) {
+        for (const error of validation.errors) {
+          console.log(`error: ${error}`);
+        }
+      }
+      for (const warning of validation.warnings) {
+        console.log(`warning: ${warning}`);
+      }
+      console.log(`Plan ${validation.ok ? 'is valid' : 'has errors'} (${validation.tasks.length} tasks)`);
+      validation.groups.forEach((group, index) => {
+        console.log(`  group ${index + 1}: ${group.join(', ')}`);
+      });
+      if (!validation.ok) {
+        process.exitCode = 1;
+      }
+    });
+
+  plan
+    .command('apply <file>')
+    .description('create the tasks of a plan and, optionally, queue them')
+    .option('--project <ref>', 'project id or name')
+    .option('--queue', 'queue the tasks for the daemon')
+    .option('--delivery <mode>', 'delivery mode for the tasks')
+    .action(
+      async (
+        file: string,
+        options: { project?: string; queue?: boolean; delivery?: string },
+      ) => {
+        const result = await withStore((store) => {
+          const text = readFileSync(path.resolve(file), 'utf8');
+          const parsed = parsePlan(text);
+          const projects = store.listProjects();
+          const project = options.project
+            ? projects.find(
+                (item) => item.id === options.project || item.name === options.project,
+              )
+            : projects[0];
+          if (!project) {
+            throw new CrewError(
+              'PROJECT_NOT_FOUND',
+              `Project not found: ${options.project ?? '(default)'}`,
+            );
+          }
+          return applyPlan(store, parsed, {
+            projectId: project.id,
+            queue: options.queue,
+            delivery: options.delivery as DeliveryMode | undefined,
+          });
+        });
+        if (globalOptions().json) {
+          printJson(result);
+          return;
+        }
+        for (const task of result.tasks) {
+          console.log(`${task.key}: ${task.id} [${task.state}] ${task.title}`);
+        }
+        result.groups.forEach((group, index) => {
+          console.log(`group ${index + 1}: ${group.join(', ')}`);
         });
       },
     );

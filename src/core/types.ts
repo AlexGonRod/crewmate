@@ -108,6 +108,7 @@ export interface TaskSummary {
   attempts: number;
   nextAttemptAt: string | null;
   lastError: string | null;
+  dependsOn: string[];
   commitSha: string | null;
   updatedAt: string;
 }
@@ -313,5 +314,6 @@ export interface TaskDetail {
   messages: Message[];
   artifacts: Artifact[];
   verifications: VerificationResult[];
+  dependencies: string[];
   events: EventRecord[];
 }

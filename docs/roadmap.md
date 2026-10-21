@@ -244,14 +244,21 @@ Referencia: ADR 0016.
 
 ### 3.3 Intención, plan y tareas
 
-Estado: **pendiente**.
+Estado: **completada**.
 
-- Convertir una petición en una o varias tareas con título, brief, criterios y
-  metodología.
-- Identificar dependencias y trabajos que pueden ejecutarse en paralelo.
-- Pedir confirmación cuando la petición sea ambigua, destructiva o afecte a
-  secretos, producción o merge.
-- Mostrar el plan antes de lanzar workers costosos.
+- Formato de plan `crew.plan/v1` (YAML o JSON) con título, brief, criterios,
+  metodología, no-objetivos, entrega y dependencias por tarea.
+- `crew plan validate` comprueba el esquema, los criterios obligatorios, las
+  dependencias y los ciclos, y devuelve los grupos de ejecución (qué se puede
+  hacer en paralelo) y el aviso de coste cuando una capa es grande.
+- `crew plan apply` crea las tareas, registra las dependencias y puede
+  encolarlas (`--queue`).
+- El motor respeta las dependencias: el daemon no toma una tarea con
+  dependencias pendientes y una dependencia fallida la bloquea.
+- La confirmación antes de aplicar (petición ambigua, destructiva, secretos,
+  producción o merge) la pide el capitán con la plantilla `AGENTS.md`.
+
+Referencia: ADR 0017.
 
 ### 3.4 Supervisión y estado
 

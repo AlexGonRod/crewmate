@@ -27,6 +27,7 @@ export interface DaemonResult {
   owner: string;
   reclaimed: LostRun[];
   processed: DaemonTaskResult[];
+  blocked: string[];
   stopped: 'once' | 'idle' | 'max_tasks' | 'aborted';
 }
 
@@ -137,6 +138,7 @@ export async function runDaemon(
 
   const reclaimed: LostRun[] = [];
   const processed: DaemonTaskResult[] = [];
+  const blockedTasks: string[] = [];
   const active = new Map<string, Promise<void>>();
   const activeTaskIds = new Set<string>();
   const cooldowns = new Map<string, number>();
@@ -267,6 +269,12 @@ export async function runDaemon(
       }
       store.renewLease(DAEMON_RESOURCE, owner, leaseTtlSeconds);
 
+      for (const taskId of store.blockTasksWithFailedDependencies()) {
+        if (!blockedTasks.includes(taskId)) {
+          blockedTasks.push(taskId);
+        }
+      }
+
       for (const run of store.reconcileStaleRuns({
         isAlive: isPidAlive,
         staleAfterMs,
@@ -345,5 +353,5 @@ export async function runDaemon(
   if (failure) {
     throw failure;
   }
-  return { owner, reclaimed, processed, stopped };
+  return { owner, reclaimed, processed, blocked: blockedTasks, stopped };
 }

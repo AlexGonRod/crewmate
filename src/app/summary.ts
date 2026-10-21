@@ -114,6 +114,7 @@ export function summarizeDetail(detail: TaskDetail): TaskSummary {
     attempts: task.attempts,
     nextAttemptAt: task.nextAttemptAt,
     lastError: task.lastError,
+    dependsOn: detail.dependencies,
     commitSha: task.commitSha,
     updatedAt: task.updatedAt,
   };

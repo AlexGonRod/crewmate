@@ -140,6 +140,8 @@ crew task clean tsk_... --force
 | `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
 | `crew status [--limit <n>]` | Resumen global: lease, conteo por estado, runs activos y tareas recientes con riesgo y CI |
+| `crew plan validate <file>` | Valida un plan y muestra los grupos de ejecución y avisos |
+| `crew plan apply <file> [--project <ref>] [--queue] [--delivery <modo>]` | Crea las tareas del plan, registra sus dependencias y opcionalmente las encola |
 | `crew captain brief [--project <ref>] [--limit <n>]` | Briefing para el capitán: proyectos, estado, riesgo y lo que requiere decisión humana |
 | `crew captain init [--force]` | Escribe las instrucciones `AGENTS.md` del capitán en el repositorio |
 | `crew daemon reconcile [--stale-after <s>] [--requeue] [--max-attempts <n>] [--backoff <s>]` | Marca runs muertos como perdidos y falla o reencola sus tareas |
@@ -381,6 +383,42 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## Planes de tareas
+
+Una petición con varios cambios se expresa como un plan, se valida y se aplica.
+
+```yaml
+schema: crew.plan/v1
+tasks:
+  - key: api
+    title: Añadir GET /health
+    brief: Implementa el endpoint de salud
+    acceptance:
+      - Devuelve 200
+  - key: docs
+    title: Documentar el endpoint
+    brief: Actualiza el README
+    acceptance:
+      - Menciona el endpoint
+    depends_on:
+      - api
+```
+
+```sh
+crew --json plan validate plan.yaml       # grupos de ejecución y avisos de coste
+crew --json plan apply plan.yaml --queue  # crea y encola las tareas
+```
+
+- `validate` comprueba esquema, criterios obligatorios, dependencias y ciclos, y
+  devuelve los grupos: la primera capa son las tareas sin dependencias (en
+  paralelo) y cada capa posterior depende de la anterior.
+- `apply` crea las tareas, registra las dependencias y con `--queue` las
+  encola.
+- El motor respeta las dependencias: el daemon no toma una tarea con
+  dependencias pendientes y una dependencia fallida la deja en `blocked`.
+
+Ver ADR 0017.
 
 ## Intake de proyecto
 

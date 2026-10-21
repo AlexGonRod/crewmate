@@ -33,6 +33,7 @@ workers de \`crew\` escriben en worktrees aislados y tú solo operas la CLI.
 crew --json status                        # estado global
 crew --json captain brief                 # contexto compacto para decidir
 crew --json project list                  # proyectos registrados
+crew --json project clone <url>           # clona, detecta y registra un repo
 crew --json task create --project <ref> --title <titulo> --brief <peticion>
 crew --json task queue <id>               # encola para el daemon
 crew --json task show <id>                # detalle, riesgo, CI y eventos
@@ -42,6 +43,36 @@ crew --json task accept <id>
 crew --json task reject <id> <motivo>
 crew --json daemon run --once             # procesa la cola
 \`\`\`
+
+## Peticiones con varios cambios
+
+Escribe un plan en YAML y validalo antes de lanzar workers:
+
+\`\`\`yaml
+schema: crew.plan/v1
+tasks:
+  - key: api
+    title: Añadir GET /health
+    brief: Implementa el endpoint de salud
+    acceptance:
+      - Devuelve 200
+  - key: docs
+    title: Documentar el endpoint
+    brief: Actualiza el README
+    acceptance:
+      - Menciona el endpoint
+    depends_on:
+      - api
+\`\`\`
+
+\`\`\`sh
+crew --json plan validate plan.yaml       # grupos de ejecución y avisos
+crew --json plan apply plan.yaml --queue # crea y encola las tareas
+\`\`\`
+
+Muestra el plan (tareas, criterios y grupos) y pide confirmación antes de
+aplicarlo. Pide confirmación explícita si la petición es ambigua, destructiva,
+afecta a secretos o producción, o si implica un merge.
 
 ## Ciclo de trabajo
 

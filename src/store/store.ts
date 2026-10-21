@@ -1318,11 +1318,96 @@ export class Store {
         `SELECT * FROM tasks
          WHERE state = 'queued' AND stage = 'develop'
            AND (next_attempt_at IS NULL OR next_attempt_at <= ?)${exclusion}
+           AND NOT EXISTS (
+             SELECT 1 FROM task_dependencies d
+             JOIN tasks dep ON dep.id = d.depends_on_task_id
+             WHERE d.task_id = tasks.id AND dep.state NOT IN ('done', 'review')
+           )
          ORDER BY priority DESC, created_at ASC
          LIMIT 1`,
       )
       .get(now, ...excludeTaskIds) as TaskRow | undefined;
     return row ? toTask(row) : null;
+  }
+
+  addDependency(taskId: string, dependsOnTaskId: string): void {
+    this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      const dependency = this.getTaskOrThrow(dependsOnTaskId);
+      if (task.id === dependency.id) {
+        throw new CrewError(
+          'TASK_DEPENDENCY_SELF',
+          `Task ${task.id} cannot depend on itself`,
+        );
+      }
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO task_dependencies (task_id, depends_on_task_id, created_at)
+           VALUES (?, ?, ?)`,
+        )
+        .run(task.id, dependency.id, nowIso());
+      this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'task.dependency_added',
+        payload: { depends_on_task_id: dependency.id },
+      });
+    });
+  }
+
+  listDependencies(taskId: string): string[] {
+    const rows = this.db
+      .prepare(
+        'SELECT depends_on_task_id FROM task_dependencies WHERE task_id = ? ORDER BY created_at ASC',
+      )
+      .all(taskId) as unknown as Array<{ depends_on_task_id: string }>;
+    return rows.map((row) => row.depends_on_task_id);
+  }
+
+  listDependents(taskId: string): string[] {
+    const rows = this.db
+      .prepare(
+        'SELECT task_id FROM task_dependencies WHERE depends_on_task_id = ? ORDER BY created_at ASC',
+      )
+      .all(taskId) as unknown as Array<{ task_id: string }>;
+    return rows.map((row) => row.task_id);
+  }
+
+  unresolvedDependencies(taskId: string): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT dep.id AS id FROM task_dependencies d
+         JOIN tasks dep ON dep.id = d.depends_on_task_id
+         WHERE d.task_id = ? AND dep.state NOT IN ('done', 'review')
+         ORDER BY dep.created_at ASC`,
+      )
+      .all(taskId) as unknown as Array<{ id: string }>;
+    return rows.map((row) => row.id);
+  }
+
+  blockTasksWithFailedDependencies(): string[] {
+    return this.transaction(() => {
+      const blocked: string[] = [];
+      for (const task of this.listTasks('queued')) {
+        const failed = this.listDependencies(task.id).filter((id) => {
+          const dependency = this.getTask(id);
+          return dependency?.state === 'failed' || dependency?.state === 'cancelled';
+        });
+        if (failed.length === 0) {
+          continue;
+        }
+        const reason = `Dependency failed: ${failed.join(', ')}`;
+        this.db
+          .prepare(
+            'UPDATE tasks SET last_error = ?, retryable = 0, updated_at = ? WHERE id = ?',
+          )
+          .run(reason, nowIso(), task.id);
+        const updated = this.setTaskState(task, 'blocked', 'task.blocked', { reason });
+        blocked.push(updated.id);
+      }
+      return blocked;
+    });
   }
 
   queueTask(taskId: string): Task {
@@ -1889,6 +1974,7 @@ export class Store {
       messages: this.listMessages(task.id),
       artifacts: this.listArtifacts(task.id),
       verifications: this.listVerifications(task.id),
+      dependencies: this.listDependencies(task.id),
       events: this.listEvents({ taskId: task.id }),
     };
   }

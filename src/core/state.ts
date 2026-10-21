@@ -3,7 +3,7 @@ import type { ReportStatus, TaskState } from './types';
 
 const TASK_TRANSITIONS: Record<TaskState, readonly TaskState[]> = {
   draft: ['queued', 'cancelled'],
-  queued: ['starting', 'failed', 'cancelled'],
+  queued: ['starting', 'blocked', 'failed', 'cancelled'],
   starting: ['running', 'failed', 'cancelled'],
   running: ['waiting_input', 'blocked', 'review', 'delivering', 'done', 'failed', 'cancelled', 'queued'],
   waiting_input: ['queued', 'cancelled'],
