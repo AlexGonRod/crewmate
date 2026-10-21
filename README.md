@@ -136,6 +136,7 @@ crew task clean tsk_... --force
 | `crew task cancel <id>` | Cancela la tarea y su proceso activo |
 | `crew task clean <id> [--force]` | Elimina el worktree; nunca borra la rama |
 | `crew task accept <id> [--force]` | Acepta una tarea en `review`; con `pr`, verifica que el PR esté mergeado |
+| `crew task merge <id> [--by <quien>] [--method <merge\|squash\|rebase>] [--delete-branch] [--accept-only]` | Comprueba las puertas y mergea o acepta la tarea; si falta algo, explica qué falta |
 | `crew task reject <id> [motivo...] [--reason <texto>]` | Rechaza, guarda feedback y reencola al developer |
 | `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--scheduling <serial\|parallel>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
@@ -384,6 +385,26 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## Merge conversacional
+
+```sh
+crew task merge tsk_... --by user
+```
+
+Antes de tocar nada se evalúan las puertas: la tarea está en `review`, el
+tester aprobó, la verificación está en verde, el CI está en verde (si hay
+resultado registrado), y el PR existe, está abierto, no es draft y es
+mergeable.
+
+- Si falta algo, el comando falla con `MERGE_BLOCKED` y enumera qué falta y por
+  qué; la tarea se queda en `review` y no se fuerza nada.
+- Si todo está en orden, mergea el PR con el método de la política del
+  proyecto (`--method` lo sobrescribe) y acepta la tarea.
+- La autorización queda en el event log con el evento `task.authorized`.
+- `--accept-only` acepta la tarea sin tocar el PR (proyectos sin GitHub).
+
+Ver ADR 0019.
 
 ## Política de ejecución y progreso
 

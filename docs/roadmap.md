@@ -281,13 +281,21 @@ Referencia: ADR 0018.
 
 ### 3.5 Merge y aceptación conversacional
 
-Estado: **pendiente**.
+Estado: **completada**.
 
-- “Mergea” comprueba política, CI, tester y estado real del PR.
-- Si falta algo, explica qué falta y no fuerza el merge.
-- Si todo está en orden y la política lo permite, ejecuta el merge o la
-  aceptación y reporta el resultado.
-- Toda autorización queda registrada en el event log.
+- `crew task merge <id>` evalúa las puertas: tarea en `review`, tester
+  aprobado, verificación en verde, CI en verde (si hay resultado registrado),
+  PR abierto, no draft y mergeable.
+- Si falta algo falla con `MERGE_BLOCKED` y enumera qué falta y por qué; la
+  tarea se queda en `review`.
+- Si todo está en orden, mergea el PR con el método de la política del proyecto
+  (`--method` lo sobrescribe) y acepta la tarea, guardando el artefacto
+  `merge` y el evento `merge.completed`.
+- La autorización se registra en el event log con el evento `task.authorized`
+  (actor, acción y resultado de cada puerta).
+- `--accept-only` acepta sin tocar el PR, para proyectos sin GitHub.
+
+Referencia: ADR 0019.
 
 ### 3.6 Demo de aceptación
 

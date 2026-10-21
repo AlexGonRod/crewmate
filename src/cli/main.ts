@@ -5,6 +5,7 @@ import { Command, CommanderError } from 'commander';
 import pc from 'picocolors';
 import { runDaemon, type DaemonTaskResult } from '../app/daemon';
 import { buildCaptainBrief, writeCaptainInstructions } from '../app/captain';
+import { mergeTask } from '../app/merge';
 import { intakeProject } from '../app/intake';
 import { applyPlan, parsePlan, validatePlan } from '../app/plan';
 import { buildProgress, renderProgress } from '../app/progress';
@@ -17,7 +18,13 @@ import { loadContext, readProjectConfig, type ResolvedContext } from '../config/
 import { CrewError, errorMessage } from '../core/errors';
 import { isPidAlive, terminateProcessTree } from '../core/process';
 import { redactDeep } from '../core/redact';
-import type { DeliveryMode, TaskSpec, TaskState, TaskSummary } from '../core/types';
+import type {
+  DeliveryMode,
+  MergeMethod,
+  TaskSpec,
+  TaskState,
+  TaskSummary,
+} from '../core/types';
 import { runDoctor } from '../doctor/doctor';
 import { removeWorktree } from '../git/worktree';
 import { viewPullRequest } from '../git/forge';
@@ -559,6 +566,62 @@ function buildProgram(): Command {
         renderTaskDetail(detail, summary);
       }
     });
+
+  task
+    .command('merge <id>')
+    .description('check the gates and merge or accept a task in review')
+    .option('--by <who>', 'who authorized the merge', 'user')
+    .option('--method <method>', 'merge method: merge, squash or rebase')
+    .option('--delete-branch', 'delete the branch after merging')
+    .option('--accept-only', 'only accept the task, do not touch the pull request')
+    .action(
+      async (
+        id: string,
+        options: {
+          by: string;
+          method?: string;
+          deleteBranch?: boolean;
+          acceptOnly?: boolean;
+        },
+      ) => {
+        const result = await withStore((store) => {
+          const detail = store.getTaskDetail(id);
+          const project = detail.project;
+          if (!project) {
+            throw new CrewError('PROJECT_NOT_FOUND', `Task ${id} has no project`);
+          }
+          const projectConfig = readProjectConfig(project.rootPath);
+          const method =
+            (options.method as MergeMethod | undefined) ??
+            projectConfig?.auto_merge?.method ??
+            'squash';
+          if (!['merge', 'squash', 'rebase'].includes(method)) {
+            throw new CrewError('INVALID_MERGE_METHOD', `Unknown merge method: ${method}`);
+          }
+          return mergeTask(store, id, {
+            projectRootPath: project.rootPath,
+            method,
+            deleteBranch: options.deleteBranch ?? projectConfig?.auto_merge?.delete_branch,
+            authorizedBy: options.by,
+            skipMerge: options.acceptOnly,
+          });
+        });
+        if (globalOptions().json) {
+          printJson(result);
+          return;
+        }
+        console.log(`Task ${result.decision.taskId}: ${result.taskState}`);
+        for (const gate of result.decision.gates) {
+          console.log(`  ${gate.ok ? 'ok' : 'no'} ${gate.name}: ${gate.detail}`);
+        }
+        if (result.merge) {
+          console.log(`Merge: ${result.merge.state} (${result.merge.method}) - ${result.merge.reason}`);
+        }
+        if (result.decision.risk) {
+          console.log(`Risk: ${result.decision.risk.level} (score ${result.decision.risk.score})`);
+        }
+      },
+    );
 
   task
     .command('run <id>')

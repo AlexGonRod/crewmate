@@ -507,6 +507,28 @@ export class Store {
     }
   }
 
+  appendAuthorizationEvent(
+    taskId: string,
+    payload: {
+      actor: string;
+      action: string;
+      gates?: Array<{ name: string; ok: boolean }>;
+      [key: string]: unknown;
+    },
+  ): EventRecord {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      return this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'task.authorized',
+        actor: payload.actor,
+        payload: { ...payload },
+      });
+    });
+  }
+
   private appendEvent(input: {
     aggregateType: string;
     aggregateId: string;
