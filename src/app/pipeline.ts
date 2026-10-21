@@ -16,6 +16,7 @@ import { readProjectConfig } from '../config/config';
 import type { Store } from '../store/store';
 import { commitWorktree, pushBranch } from '../git/commit';
 import { diffStats } from '../git/diff';
+import { isRetryableError } from './retry';
 import {
   assertGhReady,
   createPullRequest,
@@ -548,7 +549,7 @@ async function runPipelineLocked(
     if (!current || current.state !== 'running') {
       throw error;
     }
-    store.failTask(task.id, message);
+    store.failTask(task.id, message, { retryable: isRetryableError(error) });
     return {
       task: store.getTaskOrThrow(task.id),
       outcome: 'failed',

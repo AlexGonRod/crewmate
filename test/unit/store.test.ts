@@ -328,7 +328,7 @@ describe('store', () => {
 
     const store = new Store(dbPath);
     stores.push(store);
-    expect(store.schemaVersion()).toBe(4);
+    expect(store.schemaVersion()).toBe(5);
     const project = store.createProject({
       name: 'legacy',
       rootPath: '/tmp/legacy',

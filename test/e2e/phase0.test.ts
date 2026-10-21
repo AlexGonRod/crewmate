@@ -539,6 +539,62 @@ describe('phase 0 walking skeleton', () => {
     expect(cli(['--json', 'task', 'accept', id]).json.task.state).toBe('done');
   });
 
+  it('retries a crashing task with backoff until the attempt limit', () => {
+    const id = createTask('Retryable crash');
+    expect(cli(['--json', 'task', 'queue', id]).json.task.state).toBe('queued');
+
+    const result = cli([
+      '--json',
+      'daemon',
+      'run',
+      '--max-tasks',
+      '2',
+      '--max-attempts',
+      '2',
+      '--backoff',
+      '0',
+      '--interval',
+      '1',
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=crash',
+      '--quiet',
+    ]);
+    expect(result.status, result.stderr).toBe(0);
+    const events = result.stdout
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line));
+    const stopped = events.find((event: { event: string }) => event.event === 'daemon.stopped');
+    expect(stopped.processed).toHaveLength(2);
+    expect(stopped.processed[0].retryInMs).not.toBeNull();
+    expect(stopped.processed[1].taskState).toBe('failed');
+
+    const shown = cli(['--json', 'task', 'show', id]);
+    expect(shown.json.task.state).toBe('failed');
+    expect(shown.json.task.attempts).toBe(1);
+    expect(shown.json.summary.lastError).toBeTruthy();
+    const types = shown.json.events.map((event: { type: string }) => event.type);
+    expect(types).toContain('task.requeued');
+    expect(types).toContain('task.failed');
+  });
+
+  it('reconciles stale runs with the requeue flag', () => {
+    const result = cli([
+      '--json',
+      'daemon',
+      'reconcile',
+      '--requeue',
+      '--max-attempts',
+      '2',
+      '--backoff',
+      '0',
+    ]);
+    expect(result.status, result.stderr).toBe(0);
+    expect(Array.isArray(result.json.lost)).toBe(true);
+  });
+
   it('runs queued tasks concurrently without worktree or state collisions', () => {
     const first = createTask('Concurrent first');
     const second = createTask('Concurrent second');

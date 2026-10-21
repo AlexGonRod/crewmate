@@ -105,6 +105,9 @@ export interface TaskSummary {
     url: string;
     state: 'open' | 'merged' | 'merge_failed' | 'unknown';
   } | null;
+  attempts: number;
+  nextAttemptAt: string | null;
+  lastError: string | null;
   commitSha: string | null;
   updatedAt: string;
 }
@@ -184,6 +187,10 @@ export interface Task {
   harnessId: string | null;
   priority: number;
   lastSeq: number;
+  attempts: number;
+  nextAttemptAt: string | null;
+  lastError: string | null;
+  retryable: boolean;
   createdAt: string;
   updatedAt: string;
   finishedAt: string | null;

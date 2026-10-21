@@ -783,6 +783,8 @@ function buildProgram(): Command {
     .option('--interval <seconds>', 'idle poll interval', Number, 5)
     .option('--max-tasks <n>', 'stop after N tasks', Number)
     .option('--concurrency <n>', 'tasks to run in parallel', Number, 1)
+    .option('--max-attempts <n>', 'attempts per task before giving up', Number, 1)
+    .option('--backoff <seconds>', 'base delay between automatic retries', Number, 60)
     .option('--harness <id>', 'developer harness adapter: fake, opencode, or auto')
     .option('--tester-harness <id>', 'tester harness adapter')
     .option('--max-iterations <n>', 'maximum tester rejections before failing', Number)
@@ -796,6 +798,8 @@ function buildProgram(): Command {
         interval: number;
         maxTasks?: number;
         concurrency: number;
+        maxAttempts: number;
+        backoff: number;
         harness?: string;
         testerHarness?: string;
         maxIterations?: number;
@@ -822,8 +826,12 @@ function buildProgram(): Command {
             const detail = entry.error ? ` (${entry.error})` : '';
             const risk = entry.risk ? `, risk ${entry.risk}` : '';
             const ci = entry.ciState ? `, ci ${entry.ciState}` : '';
+            const retry =
+              entry.retryInMs !== null
+                ? `, retry in ${Math.ceil(entry.retryInMs / 1000)}s`
+                : '';
             console.log(
-              `Task ${entry.taskId}: ${stateLabel(entry.taskState)}${risk}${ci}${detail}`,
+              `Task ${entry.taskId}: ${stateLabel(entry.taskState)}${risk}${ci}${retry}${detail}`,
             );
           }
         };
@@ -835,6 +843,8 @@ function buildProgram(): Command {
               intervalMs: options.interval * 1000,
               maxTasks: options.maxTasks,
               concurrency: options.concurrency,
+              maxAttempts: options.maxAttempts,
+              backoffMs: options.backoff * 1000,
               harnessId: options.harness,
               testerHarnessId: options.testerHarness,
               maxIterations: options.maxIterations,
@@ -928,11 +938,22 @@ function buildProgram(): Command {
     .command('reconcile')
     .description('mark dead active runs as lost and fail their tasks')
     .option('--stale-after <seconds>', 'grace period for runs without a pid', Number, 30)
-    .action(async (options: { staleAfter: number }) => {
+    .option('--requeue', 'requeue lost tasks instead of failing them')
+    .option('--max-attempts <n>', 'attempts per task before giving up', Number, 1)
+    .option('--backoff <seconds>', 'base delay between automatic retries', Number, 60)
+    .action(async (options: {
+      staleAfter: number;
+      requeue?: boolean;
+      maxAttempts: number;
+      backoff: number;
+    }) => {
       const result = await withStore((store) => ({
         lost: store.reconcileStaleRuns({
           isAlive: isPidAlive,
           staleAfterMs: options.staleAfter * 1000,
+          requeue: Boolean(options.requeue),
+          maxAttempts: options.maxAttempts,
+          backoffMs: options.backoff * 1000,
         }),
       }));
       if (globalOptions().json) {
@@ -1090,6 +1111,7 @@ function buildProgram(): Command {
         const recent = tasks.slice(0, limit).map((task) =>
           summarizeDetail(store.getTaskDetail(task.id)),
         );
+        const now = Date.now();
         return {
           generated_at: new Date().toISOString(),
           lease: lease
@@ -1098,6 +1120,12 @@ function buildProgram(): Command {
           counts,
           total_tasks: tasks.length,
           active_runs: store.listActiveRuns().length,
+          retrying: tasks.filter(
+            (task) =>
+              task.state === 'queued' &&
+              task.nextAttemptAt !== null &&
+              Date.parse(task.nextAttemptAt) > now,
+          ).length,
           tasks: recent,
         };
       });
@@ -1117,6 +1145,7 @@ function buildProgram(): Command {
         console.log(`  ${state}: ${count}`);
       }
       console.log(`Active runs: ${status.active_runs}`);
+      console.log(`Waiting for backoff: ${status.retrying}`);
       if (status.tasks.length > 0) {
         console.log('\nRecent tasks:');
         printTable(

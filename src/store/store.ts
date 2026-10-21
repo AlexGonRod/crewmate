@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { CrewError } from '../core/errors';
 import { newId, nowIso } from '../core/ids';
 import { isPidAlive } from '../core/process';
+import { backoffDelayMs, DEFAULT_BACKOFF_MS } from '../core/backoff';
 import { slugify } from '../core/slug';
 import {
   assertTaskTransition,
@@ -68,6 +69,10 @@ interface TaskRow {
   harness_id: string | null;
   priority: number;
   last_seq: number;
+  attempts: number;
+  next_attempt_at: string | null;
+  last_error: string | null;
+  retryable: number;
   created_at: string;
   updated_at: string;
   finished_at: string | null;
@@ -193,6 +198,10 @@ function toTask(row: TaskRow): Task {
     harnessId: row.harness_id,
     priority: row.priority,
     lastSeq: row.last_seq,
+    attempts: Number(row.attempts ?? 0),
+    nextAttemptAt: row.next_attempt_at ?? null,
+    lastError: row.last_error ?? null,
+    retryable: Number(row.retryable ?? 0) === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     finishedAt: row.finished_at,
@@ -374,6 +383,9 @@ export interface ReconcileOptions {
   isAlive?: (pid: number) => boolean;
   staleAfterMs?: number;
   now?: number;
+  requeue?: boolean;
+  maxAttempts?: number;
+  backoffMs?: number;
 }
 
 export class Store {
@@ -437,6 +449,18 @@ export class Store {
     if (!names.has('pr_url')) {
       this.db.exec('ALTER TABLE tasks ADD COLUMN pr_url TEXT');
     }
+    if (!names.has('attempts')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!names.has('next_attempt_at')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN next_attempt_at TEXT');
+    }
+    if (!names.has('last_error')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN last_error TEXT');
+    }
+    if (!names.has('retryable')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN retryable INTEGER NOT NULL DEFAULT 0');
+    }
 
     const runColumns = this.db.prepare('PRAGMA table_info(runs)').all() as unknown as Array<{
       name: string;
@@ -464,6 +488,7 @@ export class Store {
     insert.run(2, nowIso());
     insert.run(3, nowIso());
     insert.run(4, nowIso());
+    insert.run(5, nowIso());
   }
 
   private transaction<T>(fn: () => T): T {
@@ -639,6 +664,10 @@ export class Store {
         harnessId: null,
         priority: 0,
         lastSeq: 0,
+        attempts: 0,
+        nextAttemptAt: null,
+        lastError: null,
+        retryable: false,
         createdAt: nowIso(),
         updatedAt: nowIso(),
         finishedAt: null,
@@ -714,6 +743,25 @@ export class Store {
           .prepare('SELECT * FROM tasks ORDER BY created_at DESC')
           .all() as unknown as TaskRow[]);
     return rows.map(toTask);
+  }
+
+  private markFailure(taskId: string, reason: string, retryable: boolean): void {
+    this.db
+      .prepare(
+        'UPDATE tasks SET last_error = ?, retryable = ?, updated_at = ? WHERE id = ?',
+      )
+      .run(reason, retryable ? 1 : 0, nowIso(), taskId);
+  }
+
+  private failTaskWith(
+    task: Task,
+    reason: string,
+    retryable: boolean,
+    eventType = 'task.failed',
+  ): Task {
+    const failed = this.setTaskState(task, 'failed', eventType, { reason });
+    this.markFailure(task.id, reason, retryable);
+    return this.getTaskOrThrow(failed.id);
   }
 
   private setTaskState(
@@ -1151,29 +1199,25 @@ export class Store {
       const report = this.getReportByRun(run.id);
       if (input.keepTaskRunning) {
         if (input.timedOut) {
-          return this.setTaskState(task, 'failed', 'task.failed', {
-            reason: 'Agent timed out',
-          });
+          return this.failTaskWith(task, 'Agent timed out', true);
         }
         if (input.reportError) {
-          return this.setTaskState(task, 'failed', 'task.failed', {
-            reason: `Invalid agent report: ${input.reportError}`,
-          });
+          return this.failTaskWith(task, `Invalid agent report: ${input.reportError}`, false);
         }
         if (!report) {
-          return this.setTaskState(task, 'failed', 'task.failed', {
-            reason: 'Agent exited without a report',
-          });
+          return this.failTaskWith(task, 'Agent exited without a report', true);
         }
         if (report.status === 'progress') {
-          return this.setTaskState(task, 'failed', 'task.failed', {
-            reason: 'Agent exited after a progress report without a terminal report',
-          });
+          return this.failTaskWith(
+            task,
+            'Agent exited after a progress report without a terminal report',
+            true,
+          );
         }
         return task;
       }
       if (input.timedOut) {
-        return this.setTaskState(task, 'failed', 'task.failed', { reason: 'Agent timed out' });
+        return this.failTaskWith(task, 'Agent timed out', true);
       }
       if (report && report.status !== 'progress') {
         const target = taskStateForReport(report.status);
@@ -1186,21 +1230,22 @@ export class Store {
         return task;
       }
       if (report && report.status === 'progress') {
-        return this.setTaskState(task, 'failed', 'task.failed', {
-          reason: 'Agent exited after a progress report without a terminal report',
-        });
+        return this.failTaskWith(
+          task,
+          'Agent exited after a progress report without a terminal report',
+          true,
+        );
       }
       if (input.reportError) {
-        return this.setTaskState(task, 'failed', 'task.failed', {
-          reason: `Invalid agent report: ${input.reportError}`,
-        });
+        return this.failTaskWith(task, `Invalid agent report: ${input.reportError}`, false);
       }
-      return this.setTaskState(task, 'failed', 'task.failed', {
-        reason:
-          input.exitCode === 0
-            ? 'Agent exited without a report'
-            : `Agent exited with code ${input.exitCode ?? 'unknown'}`,
-      });
+      return this.failTaskWith(
+        task,
+        input.exitCode === 0
+          ? 'Agent exited without a report'
+          : `Agent exited with code ${input.exitCode ?? 'unknown'}`,
+        true,
+      );
     });
   }
 
@@ -1262,19 +1307,21 @@ export class Store {
     });
   }
 
-  nextQueuedTask(excludeTaskIds: string[] = []): Task | null {
+  nextQueuedTask(excludeTaskIds: string[] = [], options: { now?: number } = {}): Task | null {
     const exclusion =
       excludeTaskIds.length > 0
         ? ` AND id NOT IN (${excludeTaskIds.map(() => '?').join(', ')})`
         : '';
+    const now = new Date(options.now ?? Date.now()).toISOString();
     const row = this.db
       .prepare(
         `SELECT * FROM tasks
-         WHERE state = 'queued' AND stage = 'develop'${exclusion}
+         WHERE state = 'queued' AND stage = 'develop'
+           AND (next_attempt_at IS NULL OR next_attempt_at <= ?)${exclusion}
          ORDER BY priority DESC, created_at ASC
          LIMIT 1`,
       )
-      .get(...excludeTaskIds) as TaskRow | undefined;
+      .get(now, ...excludeTaskIds) as TaskRow | undefined;
     return row ? toTask(row) : null;
   }
 
@@ -1305,19 +1352,68 @@ export class Store {
         );
       }
       this.setTaskStage(task.id, 'develop');
+      this.db
+        .prepare(
+          `UPDATE tasks
+           SET attempts = 0, next_attempt_at = NULL, last_error = NULL, retryable = 0,
+               updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(nowIso(), task.id);
       return this.setTaskState(task, 'queued', 'task.queued', { reason: 'retry' });
     });
   }
 
-  failTask(taskId: string, reason: string): Task {
+  failTask(taskId: string, reason: string, options: { retryable?: boolean } = {}): Task {
     return this.transaction(() => {
       const task = this.getTaskOrThrow(taskId);
       if (isTerminalTaskState(task.state)) {
         return task;
       }
       assertTaskTransition(task.state, 'failed');
-      return this.setTaskState(task, 'failed', 'task.failed', { reason });
+      const failed = this.setTaskState(task, 'failed', 'task.failed', {
+        reason,
+        retryable: Boolean(options.retryable),
+      });
+      this.markFailure(task.id, reason, Boolean(options.retryable));
+      return this.getTaskOrThrow(failed.id);
     });
+  }
+
+  requeueTask(
+    taskId: string,
+    options: { reason?: string; delayMs?: number; incrementAttempt?: boolean } = {},
+  ): Task {
+    return this.transaction(() => this.requeueTaskLocked(taskId, options));
+  }
+
+  private requeueTaskLocked(
+    taskId: string,
+    options: { reason?: string; delayMs?: number; incrementAttempt?: boolean } = {},
+  ): Task {
+    const task = this.getTaskOrThrow(taskId);
+    if (task.state === 'queued') {
+      return task;
+    }
+    assertTaskTransition(task.state, 'queued');
+    const delayMs = Math.max(0, Math.floor(options.delayMs ?? 0));
+    const nextAttemptAt = new Date(Date.now() + delayMs).toISOString();
+    const attempts = task.attempts + (options.incrementAttempt === false ? 0 : 1);
+    this.setTaskStage(task.id, 'develop');
+    const queued = this.setTaskState(task, 'queued', 'task.requeued', {
+      reason: options.reason ?? 'retry',
+      delay_ms: delayMs,
+      attempt: attempts,
+      next_attempt_at: nextAttemptAt,
+    });
+    this.db
+      .prepare(
+        `UPDATE tasks
+         SET attempts = ?, next_attempt_at = ?, retryable = 0, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(attempts, nextAttemptAt, nowIso(), task.id);
+    return this.getTaskOrThrow(queued.id);
   }
 
   setDeliveryMode(taskId: string, mode: DeliveryMode): Task {
@@ -1365,10 +1461,14 @@ export class Store {
           : target === 'blocked'
             ? 'task.blocked'
             : 'task.input_requested';
-      return this.setTaskState(task, target, eventType, {
+      const updated = this.setTaskState(task, target, eventType, {
         status,
         ...(reason ? { reason } : {}),
       });
+      if (target === 'failed') {
+        this.markFailure(task.id, reason ?? 'agent reported failure', true);
+      }
+      return this.getTaskOrThrow(updated.id);
     });
   }
 
@@ -1666,10 +1766,25 @@ export class Store {
         const task = this.getTaskOrThrow(run.taskId);
         let taskState = task.state;
         if (task.state === 'starting' || task.state === 'running') {
-          const failed = this.setTaskState(task, 'failed', 'task.failed', {
-            reason: `Run ${run.id} lost: ${reason}`,
-          });
-          taskState = failed.state;
+          const maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 1));
+          const canRequeue =
+            options.requeue === true && task.attempts + 1 < maxAttempts;
+          if (canRequeue) {
+            const delayMs = backoffDelayMs(
+              options.backoffMs ?? DEFAULT_BACKOFF_MS,
+              task.attempts + 1,
+            );
+            const requeued = this.requeueTaskLocked(task.id, {
+              reason: `Run ${run.id} lost: ${reason}`,
+              delayMs,
+            });
+            taskState = requeued.state;
+          } else {
+            const failed = this.setTaskState(task, 'failed', 'task.failed', {
+              reason: `Run ${run.id} lost: ${reason}`,
+            });
+            taskState = failed.state;
+          }
         }
         lost.push({
           runId: run.id,

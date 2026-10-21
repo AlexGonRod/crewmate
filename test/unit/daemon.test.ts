@@ -380,6 +380,94 @@ describe('daemon', () => {
     expect(store.getLease('daemon')).toBeNull();
   });
 
+  it('retries a transient failure until the attempt limit', async () => {
+    const store = createStore();
+    const { task } = createTask(store);
+    store.queueTask(task.id);
+
+    let attempts = 0;
+    const result = await runDaemon(store, context(), {
+      intervalMs: 10,
+      maxTasks: 3,
+      maxAttempts: 3,
+      backoffMs: 0,
+      execute: async () => {
+        attempts += 1;
+        throw new Error('harness exploded');
+      },
+    });
+
+    expect(attempts).toBe(3);
+    expect(result.processed).toHaveLength(3);
+    expect(result.processed[0]?.retryInMs).not.toBeNull();
+    expect(store.getTaskOrThrow(task.id).state).toBe('failed');
+    expect(store.getTaskOrThrow(task.id).attempts).toBe(2);
+  });
+
+  it('requeues a transient failure instead of failing it', async () => {
+    const store = createStore();
+    const { task } = createTask(store);
+    store.queueTask(task.id);
+
+    const result = await runDaemon(store, context(), {
+      intervalMs: 10,
+      maxTasks: 1,
+      maxAttempts: 2,
+      backoffMs: 60_000,
+      execute: async () => {
+        throw new Error('harness exploded');
+      },
+    });
+
+    expect(result.processed[0]?.taskState).toBe('queued');
+    expect(result.processed[0]?.retryInMs).toBeGreaterThan(0);
+    const requeued = store.getTaskOrThrow(task.id);
+    expect(requeued.state).toBe('queued');
+    expect(requeued.attempts).toBe(1);
+    expect(requeued.nextAttemptAt).toBeTruthy();
+  });
+
+  it('does not retry permanent failures', async () => {
+    const store = createStore();
+    const { task } = createTask(store);
+    store.queueTask(task.id);
+
+    const result = await runDaemon(store, context(), {
+      intervalMs: 10,
+      maxTasks: 1,
+      maxAttempts: 3,
+      backoffMs: 0,
+      execute: async () => {
+        throw new CrewError('MERGE_POLICY_REQUIRED', 'no merge policy');
+      },
+    });
+
+    expect(result.processed).toHaveLength(1);
+    expect(result.processed[0]?.taskState).toBe('failed');
+    expect(store.getTaskOrThrow(task.id).state).toBe('failed');
+    expect(store.getTaskOrThrow(task.id).attempts).toBe(0);
+  });
+
+  it('requeues tasks whose run was lost when retries are enabled', async () => {
+    const store = createStore();
+    const { task } = createTask(store);
+    store.queueTask(task.id);
+    const runId = startRun(store, task.id);
+    store.markRunRunning(runId, 999_999);
+
+    const result = await runDaemon(store, context(), {
+      intervalMs: 10,
+      maxTasks: 1,
+      maxAttempts: 2,
+      backoffMs: 0,
+      execute: successfulExecutor,
+    });
+
+    expect(result.reclaimed).toHaveLength(1);
+    expect(store.getTaskOrThrow(task.id).state).toBe('done');
+    expect(store.getTaskOrThrow(task.id).attempts).toBe(1);
+  });
+
   it('leaves tasks leased by another process queued and retries later', async () => {
     const store = createStore();
     const leased = createTask(store).task;

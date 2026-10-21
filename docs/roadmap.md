@@ -80,8 +80,7 @@ Referencias: ADR 0006 a 0008.
 
 ## Fase 2 — Motor autónomo confiable
 
-Estado: **casi completada** (2.1–2.6 completadas; queda el robustez operativo
-de 2.7).
+Estado: **completada**.
 
 Esta fase convierte el pipeline en una base fiable para que el capitán pueda
 delegar sin supervisión constante. El capitán no debe construirse sobre un motor
@@ -175,13 +174,20 @@ Referencia: ADR 0013.
 
 ### 2.7 Robustez operativa
 
-Estado: **en curso**.
+Estado: **completada**.
 
 - Lease, heartbeat, reconciliación y `task retry` ya existen.
 - Cancelación y señales cubren agentes, verificación y CI, también con N > 1.
-- Pendiente: backoff, reintentos automáticos y recuperación tras reinicio en
-  escenarios concurrentes.
+- Backoff exponencial con tope y reintentos automáticos por tarea
+  (`daemon run --max-attempts`, `--backoff`), con límite de intentos y estado
+  persistido (`attempts`, `next_attempt_at`, `last_error`, `retryable`).
+- Los fallos permanentes (configuración, protocolo, CI, política de merge) no
+  se reintentan; los transitorios reencolan la tarea con retardo creciente.
+- Recuperación tras reinicio: un run perdido reencola la tarea cuando quedan
+  intentos (`daemon reconcile --requeue`), conservando worktree y rama.
 - El daemon como servicio del sistema queda para la Fase 4.
+
+Referencia: ADR 0014.
 
 ### Criterios de salida de la Fase 2
 
@@ -192,8 +198,7 @@ Estado: **en curso**.
 - `crew status` o `task show` devuelve un resumen de riesgo y CI.
 - La suite completa y los e2e de concurrencia pasan de forma repetible.
 
-Los cinco criterios están cumplidos. Pendiente de 2.7: backoff, reintentos
-automáticos y recuperación tras reinicio en escenarios concurrentes.
+Los cinco criterios están cumplidos.
 
 ## Fase 3 — Capitán conversacional
 

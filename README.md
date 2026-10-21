@@ -1,11 +1,11 @@
 # crew
 
-Orquestador de múltiples agentes agnóstico al lenguaje. Las **Fases 0 y 1** están
-completadas y la **Fase 2** está en curso: metodología de desarrollo declarativa
-(`free`, `spec`, `tdd`), pipeline developer → verificación → tester → git/PR,
-ejecución con harness reales (`opencode`) con detección automática, y un daemon
-con lease que procesa la cola y reconcilia runs perdidos. El núcleo sigue siendo
-pequeño y verificado.
+Orquestador de múltiples agentes agnóstico al lenguaje. Las **Fases 0, 1 y 2**
+están completadas: metodología de desarrollo declarativa (`free`, `spec`,
+`tdd`), pipeline developer → verificación → tester → git/PR, gate de CI, entrega
+con auto-merge, harness reales (`opencode`) con detección automática, y un daemon
+con lease que procesa la cola en paralelo, reintenta con backoff y reconcilia
+runs perdidos. El núcleo sigue siendo pequeño y verificado.
 
 El objetivo a medio plazo es una capa **capitán** conversacional encima de este
 motor: hablar con un agente que entiende la petición, clona el proyecto, lanza
@@ -21,7 +21,7 @@ El diseño combina dos ideas:
 
 ## Estado
 
-Fases 0 y 1 completadas; Fase 2 en curso:
+Fases 0, 1 y 2 completadas:
 
 - Proyectos registrados y tareas con estado durable en SQLite.
 - Worktree aislado por tarea.
@@ -40,6 +40,8 @@ Fases 0 y 1 completadas; Fase 2 en curso:
 - Detección de binarios, `--harness auto` y `crew harness list`.
 - Cola de tareas y daemon con lease único, heartbeat, concurrencia configurable
   y parada ordenada.
+- Reintentos automáticos con backoff exponencial y recuperación de runs
+  perdidos tras reinicio.
 - Reconciliación de runs perdidos y `task retry` explícito.
 - Clasificación de riesgo por cambio con reglas explícitas y resumen reutilizable
   (`task show` y `crew status`) con riesgo, CI, verificación, tester y estado del
@@ -59,7 +61,7 @@ El resto del alcance y las fases pendientes están en el
 |---|---|---|
 | 0. Núcleo durable | Completada | Estado, worktrees, metodologías y recuperación |
 | 1. Pipeline y entrega | Completada | Developer, tester, verificación, commit/PR y daemon |
-| 2. Motor autónomo confiable | En curso | CI, auto-merge, concurrencia y resumen de riesgo |
+| 2. Motor autónomo confiable | Completada | CI, auto-merge, concurrencia, riesgo y reintentos |
 | 3. Capitán conversacional | Pendiente | Chat, intake, planificación, supervisión y merge |
 | 4. Runtime visible y escala | Pendiente | Sesiones visibles, remotos, memoria y scout |
 
@@ -132,10 +134,10 @@ crew task clean tsk_... --force
 | `crew task clean <id> [--force]` | Elimina el worktree; nunca borra la rama |
 | `crew task accept <id> [--force]` | Acepta una tarea en `review`; con `pr`, verifica que el PR esté mergeado |
 | `crew task reject <id> [motivo...] [--reason <texto>]` | Rechaza, guarda feedback y reencola al developer |
-| `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
+| `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
 | `crew status [--limit <n>]` | Resumen global: lease, conteo por estado, runs activos y tareas recientes con riesgo y CI |
-| `crew daemon reconcile [--stale-after <s>]` | Marca runs muertos como perdidos y falla sus tareas |
+| `crew daemon reconcile [--stale-after <s>] [--requeue] [--max-attempts <n>] [--backoff <s>]` | Marca runs muertos como perdidos y falla o reencola sus tareas |
 | `crew report --task <id> --run <id> [--file <path\|->] [--status <s>] [--summary <t>]` | Registra un reporte |
 | `crew events [--task <id>] [--follow] [--limit <n>]` | Muestra el event log |
 | `crew doctor` | Comprueba base de datos, harnesses, runs, worktrees y proyectos |
@@ -269,6 +271,32 @@ pnpm crew --json task accept tsk_... --force
 
 `auto_merge` se rige por el ADR 0011; `scout` se rechaza con
 `DELIVERY_UNSUPPORTED`.
+
+## Reintentos y backoff
+
+Un fallo de agente (crash, timeout, salida sin reporte) no termina el lote: el
+daemon puede reencolar la tarea con un retardo creciente.
+
+```sh
+# Hasta 3 intentos por tarea, con backoff base de 30 s
+pnpm crew daemon run --max-attempts 3 --backoff 30
+
+# Recuperar tareas cuyo run se perdió al reiniciar la máquina
+pnpm crew daemon reconcile --requeue --max-attempts 3
+```
+
+- `--max-attempts` es el número máximo de intentos por tarea; por defecto 1
+  (sin reintentos automáticos).
+- `--backoff` es la base del retardo: `base * 2^(intento - 1)`, con tope de 15
+  minutos.
+- Solo se reintentan fallos transitorios. Los errores de configuración o
+  protocolo (spec inválida, reporte malformado, política de merge ausente) y un
+  CI fallido son definitivos.
+- Cada reintento queda registrado con el evento `task.requeued`; la tarea
+  guarda `attempts`, `next_attempt_at`, `last_error` y `retryable`.
+- `crew status` muestra cuántas tareas esperan su backoff.
+
+Ver ADR 0014.
 
 ## Daemon
 

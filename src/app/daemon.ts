@@ -4,6 +4,8 @@ import { isPidAlive, terminateProcessTree } from '../core/process';
 import type { CiState, RiskLevel, Task, TaskState } from '../core/types';
 import type { ResolvedContext } from '../config/config';
 import type { LostRun, Store } from '../store/store';
+import { backoffDelayMs, DEFAULT_BACKOFF_MS } from '../core/backoff';
+import { isRetryableError } from './retry';
 import { runPipeline, type PipelineOptions, type PipelineResult } from './pipeline';
 import { summarizeDetail } from './summary';
 
@@ -16,6 +18,8 @@ export interface DaemonTaskResult {
   reportStatus: string | null;
   risk: RiskLevel | null;
   ciState: CiState | null;
+  attempt: number;
+  retryInMs: number | null;
   error?: string;
 }
 
@@ -43,6 +47,8 @@ export interface DaemonOptions {
   env?: Record<string, string>;
   quiet?: boolean;
   concurrency?: number;
+  maxAttempts?: number;
+  backoffMs?: number;
   staleAfterMs?: number;
   leaseTtlSeconds?: number;
   signal?: AbortSignal;
@@ -112,6 +118,8 @@ export async function runDaemon(
         ),
       );
   const staleAfterMs = options.staleAfterMs ?? 30_000;
+  const maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 1));
+  const backoffMs = Math.max(0, Math.floor(options.backoffMs ?? DEFAULT_BACKOFF_MS));
   const leaseTtlSeconds = Math.max(
     options.leaseTtlSeconds ?? 30,
     Math.ceil((intervalMs * 2) / 1000),
@@ -136,6 +144,24 @@ export async function runDaemon(
   let stopping = false;
   let leaseLost = false;
   let started = 0;
+
+  const scheduleRetry = (taskId: string, reason?: string): Task | null => {
+    if (maxAttempts <= 1) {
+      return null;
+    }
+    const current = store.getTask(taskId);
+    if (!current || current.state !== 'failed' || !current.retryable) {
+      return null;
+    }
+    if (current.attempts + 1 >= maxAttempts) {
+      return null;
+    }
+    const delayMs = backoffDelayMs(backoffMs, current.attempts + 1);
+    return store.requeueTask(taskId, {
+      reason: reason ? `retry after failure: ${reason}` : 'retry after failure',
+      delayMs,
+    });
+  };
 
   const terminateActive = (): void => {
     for (const taskId of activeTaskIds) {
@@ -172,6 +198,8 @@ export async function runDaemon(
           reportStatus: result.report?.status ?? null,
           risk: summary.risk?.level ?? null,
           ciState: summary.ci?.state ?? null,
+          attempt: task.attempts + 1,
+          retryInMs: null,
         };
       } catch (error) {
         if (isLeaseConflict(error)) {
@@ -183,6 +211,7 @@ export async function runDaemon(
         const failed = store.failTask(
           task.id,
           `Daemon could not run task: ${message}`,
+          { retryable: isRetryableError(error) },
         );
         entry = {
           taskId: task.id,
@@ -191,6 +220,8 @@ export async function runDaemon(
           reportStatus: null,
           risk: null,
           ciState: null,
+          attempt: task.attempts + 1,
+          retryInMs: null,
           error: message,
         };
       } finally {
@@ -198,6 +229,14 @@ export async function runDaemon(
         active.delete(task.id);
       }
       if (entry) {
+        const requeued = scheduleRetry(task.id, entry.error);
+        if (requeued) {
+          entry.taskState = requeued.state;
+          entry.retryInMs = requeued.nextAttemptAt
+            ? Math.max(0, Date.parse(requeued.nextAttemptAt) - Date.now())
+            : 0;
+          entry.attempt = requeued.attempts;
+        }
         processed.push(entry);
         options.onTask?.(entry);
       }
@@ -231,6 +270,9 @@ export async function runDaemon(
       for (const run of store.reconcileStaleRuns({
         isAlive: isPidAlive,
         staleAfterMs,
+        requeue: maxAttempts > 1,
+        maxAttempts,
+        backoffMs,
       })) {
         reclaimed.push(run);
         options.onReclaim?.(run);

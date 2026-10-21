@@ -111,6 +111,9 @@ export function summarizeDetail(detail: TaskDetail): TaskSummary {
       : null,
     tester,
     pr,
+    attempts: task.attempts,
+    nextAttemptAt: task.nextAttemptAt,
+    lastError: task.lastError,
     commitSha: task.commitSha,
     updatedAt: task.updatedAt,
   };
