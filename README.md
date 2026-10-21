@@ -123,6 +123,7 @@ crew task clean tsk_... --force
 |---|---|
 | `crew init [--force]` | Escribe `.crew/config.yaml` en el repo actual |
 | `crew project add <path> [--name]` | Registra un repositorio |
+| `crew project clone <url> [--dir <path>] [--name <name>]` | Clona un repositorio de GitHub, detecta su toolchain y lo registra |
 | `crew project list` | Lista proyectos |
 | `crew harness list` | Lista harnesses, disponibilidad y capacidades |
 | `crew task create --project <ref> --title <t> (--brief <texto> \| --brief-file <path> \| --spec-file <path>) [--methodology free\|spec\|tdd] [--acceptance <texto>] [--non-goal <texto>] [--delivery local\|pr]` | Crea una tarea en `draft` |
@@ -380,6 +381,23 @@ Si un reporte `done` no cubre la spec, la tarea falla con `REPORT_INCOMPLETE`.
 La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
+
+## Intake de proyecto
+
+```sh
+# Clona, detecta los comandos de verificación y registra el proyecto
+pnpm crew --json project clone https://github.com/acme/widgets
+```
+
+- Acepta URLs HTTPS, SSH y la forma corta `owner/repo` de GitHub.
+- Comprueba el acceso antes de clonar y registra el proyecto con su rama por
+  defecto, remote y forge.
+- Escribe `.crew/config.yaml` con los comandos de verificación detectados
+  (`package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `Makefile`).
+- Nunca instala nada: devuelve la lista `consent` con lo que falta (toolchain,
+  `node_modules`) y el comando sugerido, para que la persona lo autorice.
+
+Ver ADR 0016.
 
 ## Capa capitán
 

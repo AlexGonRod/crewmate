@@ -5,6 +5,7 @@ import { Command, CommanderError } from 'commander';
 import pc from 'picocolors';
 import { runDaemon, type DaemonTaskResult } from '../app/daemon';
 import { buildCaptainBrief, writeCaptainInstructions } from '../app/captain';
+import { intakeProject } from '../app/intake';
 import { addProject, initProject } from '../app/projects';
 import { detectHarness } from '../adapters/harness/detect';
 import { listHarnessAdapters } from '../adapters/harness/registry';
@@ -345,6 +346,40 @@ function buildProgram(): Command {
         printJson({ project: created });
       } else {
         console.log(`Added project ${created.name} (${created.id})`);
+      }
+    });
+
+  project
+    .command('clone <url>')
+    .description('clone a GitHub repository, detect its toolchain and register it')
+    .option('--dir <path>', 'target directory for the clone')
+    .option('--name <name>', 'project name')
+    .action(async (url: string, options: { dir?: string; name?: string }) => {
+      const result = await withStore((store, context) =>
+        intakeProject(store, {
+          url,
+          projectsDir: context.paths.projectsDir,
+          dir: options.dir,
+          name: options.name,
+        }),
+      );
+      if (globalOptions().json) {
+        printJson(result);
+        return;
+      }
+      console.log(
+        `Cloned ${result.clone.url} into ${result.clone.path} (branch ${result.clone.defaultBranch})`,
+      );
+      console.log(`Registered project ${result.project.name} (${result.project.id})`);
+      console.log(`Config: ${result.config.path}`);
+      if (result.config.verify.length > 0) {
+        console.log(`Verify commands: ${result.config.verify.join(', ')}`);
+      }
+      if (result.consent.length > 0) {
+        console.log('\nNeeds your consent before any toolchain or dependency install:');
+        for (const item of result.consent) {
+          console.log(`  - ${item.reason}${item.command ? ` (suggested: ${item.command})` : ''}`);
+        }
       }
     });
 

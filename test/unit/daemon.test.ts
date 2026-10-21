@@ -22,6 +22,7 @@ function context(): ResolvedContext {
       dataDir: '/tmp/crew/data',
       stateDir: '/tmp/crew/state',
       dbPath: ':memory:',
+      projectsDir: '/tmp/crew/projects',
       worktreesDir: '/tmp/crew/worktrees',
       tasksDir: '/tmp/crew/tasks',
       logsDir: '/tmp/crew/logs',

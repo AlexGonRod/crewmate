@@ -7,6 +7,7 @@ export interface CrewPaths {
   dataDir: string;
   stateDir: string;
   dbPath: string;
+  projectsDir: string;
   worktreesDir: string;
   tasksDir: string;
   logsDir: string;
@@ -35,6 +36,7 @@ export function resolvePaths(dbPathOverride?: string): CrewPaths {
     dataDir,
     stateDir,
     dbPath,
+    projectsDir: path.join(dataDir, 'projects'),
     worktreesDir: path.join(dataDir, 'worktrees'),
     tasksDir: path.join(dataDir, 'tasks'),
     logsDir: path.join(dataDir, 'logs'),
@@ -47,6 +49,7 @@ export function ensurePaths(paths: CrewPaths): void {
     paths.dataDir,
     paths.stateDir,
     path.dirname(paths.dbPath),
+    paths.projectsDir,
     paths.worktreesDir,
     paths.tasksDir,
     paths.logsDir,

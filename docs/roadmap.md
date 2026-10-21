@@ -227,12 +227,20 @@ Referencia: ADR 0009 y ADR 0015.
 
 ### 3.2 Intake de proyecto
 
-Estado: **pendiente**.
+Estado: **completada**.
 
-- Resolver una URL de GitHub y comprobar que el repositorio es accesible.
-- Pedir consentimiento antes de instalar toolchain o dependencias.
-- Clonar bajo `projects/` y registrar el proyecto automáticamente.
-- Detectar rama por defecto, forge y comandos de verificación disponibles.
+- `crew project clone <url>` resuelve URLs HTTPS, SSH y `owner/repo` de
+  GitHub, comprueba el acceso con `git ls-remote` y clona bajo
+  `<dataDir>/projects/<owner>-<repo>`.
+- El proyecto se registra automáticamente con su rama por defecto, remote y
+  forge.
+- Se detectan los comandos de verificación disponibles (`package.json`,
+  `Cargo.toml`, `go.mod`, `pyproject.toml`, `Makefile`) y se escriben en
+  `.crew/config.yaml`.
+- El consentimiento es explícito: la CLI devuelve lo que falta (toolchain,
+  `node_modules`) y el comando sugerido, pero nunca instala nada.
+
+Referencia: ADR 0016.
 
 ### 3.3 Intención, plan y tareas
 
