@@ -67,7 +67,7 @@ El resto del alcance y las fases pendientes están en el
 | 1. Pipeline y entrega | Completada | Developer, tester, verificación, commit/PR y daemon |
 | 2. Motor autónomo confiable | Completada | CI, auto-merge, concurrencia, riesgo y reintentos |
 | 3. Capitán conversacional | Completada | Capa capitán, intake, planes, supervisión y merge |
-| 4. Runtime visible y escala | En curso | Sesiones visibles, remotos, memoria y scout |
+| 4. Runtime visible y escala | Completada | Sesiones visibles, remotos, memoria, scout, forjas y UI |
 
 Detalle, criterios de salida y dependencias: [docs/roadmap.md](docs/roadmap.md).
 La separación entre motor y capitán está registrada en el

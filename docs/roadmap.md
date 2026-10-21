@@ -322,7 +322,11 @@ Referencia: ADR 0020.
 
 ## Fase 4 — Runtime visible y escala
 
-Estado: **en curso** (4.1 completada).
+Estado: **completada**.
+
+Quedan fuera del núcleo del roadmap, como mejoras posteriores, el despliegue
+del daemon como servicio del sistema (launchd/systemd) y mover el worktree y el
+commit al host remoto.
 
 - Sesiones visibles en tmux/PTY, con capacidad de observar o intervenir.
   **Completada** (ADR 0023): `task run --session tmux` ejecuta el agente en una
