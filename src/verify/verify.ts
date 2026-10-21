@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { runProcess } from '../adapters/backend/process';
+import type { RemoteRunner } from '../app/runner';
 import { errorMessage } from '../core/errors';
 import type { VerificationState } from '../core/types';
 
@@ -16,6 +17,7 @@ export interface RunVerificationOptions {
   env?: Record<string, string>;
   quiet?: boolean;
   signal?: AbortSignal;
+  remote?: RemoteRunner | null;
 }
 
 export interface VerificationOutcome {
@@ -79,6 +81,7 @@ async function runVerificationCommand(
       timeoutMs: (options.timeoutSeconds ?? DEFAULT_VERIFY_TIMEOUT_SECONDS) * 1000,
       quiet: options.quiet ?? true,
       signal: options.signal,
+      remote: options.remote ?? null,
     });
     const durationMs = Date.now() - startedAt;
     const timedOut = result.timedOut;

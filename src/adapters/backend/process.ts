@@ -3,6 +3,7 @@ import { createWriteStream, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { redactText } from '../../core/redact';
 import { sessionPid, startSession, waitForSession } from '../../app/session';
+import { remoteProcessOptions, type RemoteRunner } from '../../app/runner';
 
 export interface ProcessResult {
   exitCode: number | null;
@@ -24,6 +25,7 @@ export interface RunProcessOptions {
   onSpawn?: (pid: number) => void;
   session?: string;
   stdinPath?: string;
+  remote?: RemoteRunner | null;
 }
 
 function cleanEnv(env: Record<string, string | undefined>): NodeJS.ProcessEnv {
@@ -114,7 +116,11 @@ async function runSessionProcess(
   };
 }
 
-export function runProcess(options: RunProcessOptions): Promise<ProcessResult> {
+export function runProcess(input: RunProcessOptions): Promise<ProcessResult> {
+  if (input.remote) {
+    return runProcess(remoteProcessOptions(input, input.remote));
+  }
+  const options = input;
   if (options.session) {
     return runSessionProcess(options, options.session);
   }

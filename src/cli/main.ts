@@ -649,6 +649,7 @@ function buildProgram(): Command {
     .option('--timeout <seconds>', 'timeout in seconds', Number)
     .option('--env <key=value>', 'extra environment variable', collect, [])
     .option('--session <mode>', 'run the agent in a visible tmux session')
+    .option('--host <host>', 'run the agent and the verification over ssh on this host')
     .option('--quiet', 'do not stream agent output')
     .action(
       async (
@@ -665,6 +666,7 @@ function buildProgram(): Command {
           timeout?: number;
           env: string[];
           session?: string;
+          host?: string;
           quiet?: boolean;
         },
       ) => {
@@ -686,6 +688,7 @@ function buildProgram(): Command {
             env: parseEnv(options.env),
             quiet: Boolean(options.quiet || json),
             session: options.session === 'tmux' ? 'tmux' : undefined,
+            remoteHost: options.host,
           }),
         );
 

@@ -18,6 +18,7 @@ import { commitWorktree, pushBranch } from '../git/commit';
 import { diffStats } from '../git/diff';
 import { isRetryableError } from './retry';
 import { getForge } from '../forges';
+import { parseRunnerConfig } from './runner';
 import {
   DEFAULT_CI_INTERVAL_SECONDS,
   DEFAULT_CI_TIMEOUT_SECONDS,
@@ -49,6 +50,7 @@ export interface PipelineOptions {
   maxIterations?: number;
   delivery?: DeliveryMode;
   session?: 'tmux';
+  remoteHost?: string;
   timeoutSeconds?: number;
   env?: Record<string, string>;
   quiet?: boolean;
@@ -133,6 +135,9 @@ async function runPipelineLocked(
   const delivery: DeliveryMode =
     options.delivery ?? task.deliveryMode ?? context.config.delivery;
   const isScout = delivery === 'scout';
+  const remote = options.remoteHost
+    ? { host: options.remoteHost, options: [] }
+    : parseRunnerConfig(projectConfig?.runner);
   const verifyCommands = isScout ? [] : verificationCommands(projectConfig, task);
   const developerHarnessId =
     options.developerHarnessId ??
@@ -186,6 +191,7 @@ async function runPipelineLocked(
     env: options.env ?? {},
     quiet: options.quiet,
     session: options.session,
+    remote,
   };
 
   let developerReport: Report | null = null;
@@ -314,6 +320,7 @@ async function runPipelineLocked(
         tasksDir: context.paths.tasksDir,
         env: options.env ?? {},
         signal: options.signal,
+        remote,
       });
       verifications = outcomes.map((outcome) =>
         store.recordVerification({

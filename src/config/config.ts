@@ -181,6 +181,11 @@ export interface ProjectAutoMergeConfig {
   delete_branch?: boolean;
 }
 
+export interface ProjectRunnerConfig {
+  host: string;
+  ssh_options?: string[];
+}
+
 export interface ProjectConfig {
   schema?: string;
   name?: string;
@@ -194,6 +199,7 @@ export interface ProjectConfig {
   review?: {
     max_iterations?: number;
   };
+  runner?: ProjectRunnerConfig;
 }
 
 export function projectConfigPath(rootPath: string): string {

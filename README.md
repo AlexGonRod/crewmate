@@ -395,6 +395,29 @@ La evidencia del developer es autodeclarada, pero los comandos `verify` los
 ejecuta el orquestador antes de invocar al tester. La salida queda en
 `verifications` y se muestra en `task show`.
 
+## Workers remotos
+
+```yaml
+# .crew/config.yaml
+runner:
+  host: builder@server
+  ssh_options: ["-o", "BatchMode=yes"]
+```
+
+```sh
+crew task run tsk_... --host builder@server   # sobrescribe el host
+```
+
+- El agente y los comandos de verificación se ejecutan por `ssh` contra el host
+  configurado, con el mismo contrato de reporte, timeout y cancelación.
+- Solo se reenvían las variables `CREW_*` y el `PATH`: el entorno del comando
+  remoto es el del host remoto.
+- **Condición de uso**: el host remoto tiene que ver la misma ruta del
+  worktree (sistema de archivos compartido, volumen montado o clon espejo).
+  La base de datos, el commit, el push y las forjas siguen siendo locales.
+
+Ver ADR 0026.
+
 ## UI web
 
 ```sh

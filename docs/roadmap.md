@@ -328,7 +328,10 @@ Estado: **en curso** (4.1 completada).
   **Completada** (ADR 0023): `task run --session tmux` ejecuta el agente en una
   sesión `crew-<taskId>-<rol>` observable e intervenible, con la salida
   capturada en el log del run; `crew sessions list|kill` las gestiona.
-- Workers en hosts remotos alcanzables por SSH.
+- Workers en hosts remotos alcanzables por SSH. **Completada** (ADR 0026): un
+  proyecto declara `runner.host` y el agente y la verificación se ejecutan por
+  `ssh`; el worktree tiene que ser visible en el host remoto. Queda mover el
+  worktree y el commit al host remoto como fase propia.
 - Memoria de proyecto para no repetir contexto entre sesiones. **Completada**
   (ADR 0021): notas durables por proyecto que llegan al brief de cada agente y
   al briefing del capitán.

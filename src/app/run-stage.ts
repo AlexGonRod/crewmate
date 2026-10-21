@@ -21,6 +21,7 @@ import { assertHarnessAvailable } from '../adapters/harness/detect';
 import { getHarness, resolveHarnessId } from '../adapters/harness/registry';
 import { runProcess, type ProcessResult } from '../adapters/backend/process';
 import { sessionNameForTask } from './session';
+import type { RemoteRunner } from './runner';
 import {
   normalizeReport,
   parseReportFromOutput,
@@ -46,6 +47,7 @@ export interface RunStageOptions {
   quiet?: boolean;
   signal?: AbortSignal;
   session?: 'tmux';
+  remote?: RemoteRunner | null;
 }
 
 export interface RunStageResult {
@@ -221,6 +223,7 @@ export async function runStage(
       quiet: options.quiet,
       signal: options.signal,
       session: options.session ? sessionNameForTask(task.id, role) : undefined,
+      remote: options.remote ?? null,
       stdinPath: briefPath,
       onSpawn: (pid) => {
         store.markRunRunning(run.id, pid);
