@@ -50,9 +50,12 @@ requieren autoridad humana.
 |---|---|---|
 | 0. Núcleo durable | Completada | Estado, worktrees, metodologías y recuperación |
 | 1. Pipeline y entrega | Completada | Developer, tester, verificación, commit/PR y daemon |
-| 2. Motor autónomo confiable | En curso | CI, auto-merge, concurrencia y resumen de riesgo |
-| 3. Capitán conversacional | Pendiente | Chat, intake, planificación, supervisión y merge |
-| 4. Runtime visible y escala | Pendiente | Sesiones visibles, remotos, memoria y scout |
+| 2. Motor autónomo confiable | Completada | CI, auto-merge, concurrencia y resumen de riesgo |
+| 3. Capitán conversacional | Completada | Chat, intake, planificación, supervisión y merge |
+| 4. Runtime visible y escala | Completada | Sesiones visibles, remotos, memoria y scout |
+
+Después de la Fase 4: el modelo de gates como autoridad (ADR 0032) y la capa
+de skills (ADR 0033).
 
 ## Fase 0 — Núcleo durable
 
