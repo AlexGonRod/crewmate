@@ -55,7 +55,25 @@ export interface LaunchCommand {
   env: Record<string, string | undefined>;
 }
 
+/**
+ * A conversation turn with the main agent (the captain).
+ *
+ * It is not a task: there is no worktree, no report and no run in the
+ * pipeline. The prompt goes in, the answer comes back.
+ */
+export interface ChatLaunchSpec {
+  prompt: string;
+  cwd: string;
+  /** Continue an existing conversation, when the harness supports it. */
+  sessionId?: string | null;
+  agent?: string;
+  model?: string;
+  env: Record<string, string>;
+}
+
 export interface HarnessAdapter {
   manifest: HarnessManifest;
   buildLaunch(spec: LaunchSpec): LaunchCommand;
+  /** Launches the agent for a conversation turn, when it supports it. */
+  buildChatLaunch?(spec: ChatLaunchSpec): LaunchCommand;
 }

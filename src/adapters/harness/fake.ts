@@ -1,6 +1,11 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { HarnessAdapter, HarnessManifest, LaunchSpec } from './types';
+import type {
+  ChatLaunchSpec,
+  HarnessAdapter,
+  HarnessManifest,
+  LaunchSpec,
+} from './types';
 
 const fakeAgentUrl = [
   new URL('../test/fake-agent/index.mjs', import.meta.url),
@@ -59,6 +64,23 @@ export class FakeHarness implements HarnessAdapter {
         CREW_REPORT_PATH: spec.reportPath,
         CREW_DB_PATH: spec.dbPath,
         CREW_FAKE_SCENARIO: spec.env.CREW_FAKE_SCENARIO ?? 'success',
+      },
+    };
+  }
+
+  buildChatLaunch(spec: ChatLaunchSpec): {
+    command: string;
+    args: string[];
+    env: Record<string, string | undefined>;
+  } {
+    return {
+      command: process.execPath,
+      args: [fakeAgentPath()],
+      env: {
+        ...process.env,
+        ...spec.env,
+        CREW_ROLE: 'captain',
+        CREW_FAKE_MODE: 'captain',
       },
     };
   }

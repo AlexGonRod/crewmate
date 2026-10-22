@@ -1,10 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline';
 import { Command, CommanderError } from 'commander';
 import pc from 'picocolors';
 import { runDaemon, type DaemonTaskResult } from '../app/daemon';
 import { buildCaptainBrief, writeCaptainInstructions } from '../app/captain';
+import { runCaptainTurn } from '../app/captain-run';
+import type { CaptainTurn } from '../app/captain-prompt';
 import { mergeTask } from '../app/merge';
 import { startUiServer } from '../app/ui';
 import {
@@ -2236,6 +2239,136 @@ function buildProgram(): Command {
       );
     });
 
+  async function resolveCaptainProject(
+    store: Store,
+    ref?: string,
+  ): Promise<Project> {
+    if (ref) {
+      const selected = store.getProject(ref);
+      if (!selected) {
+        throw new CrewError('PROJECT_NOT_FOUND', `Project not found: ${ref}`);
+      }
+      return selected;
+    }
+    // The stored path is resolved, and the shell may hand us a symlinked one.
+    for (const candidate of [process.cwd(), realpathSync(process.cwd())]) {
+      const selected = store.getProject(candidate);
+      if (selected) {
+        return selected;
+      }
+    }
+    const known = store
+      .listProjects()
+      .map((project) => project.name)
+      .join(', ');
+    throw new CrewError(
+      'PROJECT_NOT_FOUND',
+      `No registered project for ${process.cwd()}; pass --project${
+        known ? ` (known: ${known})` : ''
+      }`,
+    );
+  }
+
+  program
+    .command('ask')
+    .description('ask the captain for work; it turns the request into tasks')
+    .argument('<request>', 'what the person wants, in their own words')
+    .option('--project <ref>', 'the project to work on (default: the current directory)')
+    .option('--harness <id>', 'the harness of the captain: fake or opencode')
+    .option('--timeout <seconds>', 'timeout for the captain turn', Number)
+    .action(
+      async (
+        request: string,
+        options: { project?: string; harness?: string; timeout?: number },
+      ) => {
+        const result = await withStore(async (store, context) => {
+          const project = await resolveCaptainProject(store, options.project);
+          const turn = await runCaptainTurn({
+            store,
+            context,
+            project,
+            request,
+            harnessId: options.harness,
+            timeoutSeconds: options.timeout,
+          });
+          return { project, turn };
+        });
+        if (globalOptions().json) {
+          printJson({
+            project: result.project.name,
+            sessionId: result.turn.sessionId,
+            answer: result.turn.text,
+            exitCode: result.turn.exitCode,
+            timedOut: result.turn.timedOut,
+            promptPath: result.turn.promptPath,
+            logPath: result.turn.logPath,
+          });
+          return;
+        }
+        if (result.turn.text) {
+          console.log(result.turn.text);
+        }
+        if (result.turn.timedOut) {
+          console.error('The captain timed out.');
+        }
+      },
+    );
+
+  program
+    .command('chat')
+    .description('talk to the captain, turn by turn')
+    .option('--project <ref>', 'the project to work on (default: the current directory)')
+    .option('--harness <id>', 'the harness of the captain: fake or opencode')
+    .option('--timeout <seconds>', 'timeout for each turn', Number)
+    .action(
+      async (options: { project?: string; harness?: string; timeout?: number }) => {
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const history: CaptainTurn[] = [];
+        let sessionId: string | null = null;
+        try {
+          const project = await withStore((store) =>
+            resolveCaptainProject(store, options.project),
+          );
+          console.log(
+            `Captain ready for ${project.name}. Write what you want; /exit to leave.`,
+          );
+          for await (const line of rl) {
+            const request = line.trim();
+            if (!request) {
+              continue;
+            }
+            if (request === '/exit' || request === '/quit') {
+              break;
+            }
+            const turn = await withStore(async (store, context) => {
+              const result = await runCaptainTurn({
+                store,
+                context,
+                project,
+                request,
+                harnessId: options.harness,
+                timeoutSeconds: options.timeout,
+                sessionId,
+                history,
+              });
+              sessionId = result.sessionId;
+              return result;
+            });
+            history.push({ role: 'person', text: request });
+            history.push({ role: 'captain', text: turn.text });
+            if (turn.text) {
+              console.log(`\n${turn.text}\n`);
+            }
+            if (turn.timedOut) {
+              console.error('The captain timed out.');
+            }
+          }
+        } finally {
+          rl.close();
+        }
+      },
+    );
+
   const role = program
     .command('role')
     .description('the contracts that say how each role must work');
@@ -2328,6 +2461,12 @@ function buildProgram(): Command {
         throw new CrewError(
           'ROLE_UNKNOWN',
           `Unknown role: ${roleName}. Known roles: ${ROLE_CONTRACTS.join(', ')}`,
+        );
+      }
+      if (contract === 'captain') {
+        throw new CrewError(
+          'ROLE_CAPTAIN_INIT',
+          'The captain contract is the AGENTS.md of the repository: use `crew captain init`',
         );
       }
       const target = roleAgentsPath(process.cwd(), contract);

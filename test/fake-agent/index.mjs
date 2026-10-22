@@ -2,6 +2,20 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
+const mode = process.env.CREW_FAKE_MODE ?? 'task';
+
+/** Reads the prompt the orchestrator delivered on stdin. */
+async function readStdin() {
+  if (process.stdin.isTTY) {
+    return '';
+  }
+  let text = '';
+  for await (const chunk of process.stdin) {
+    text += chunk;
+  }
+  return text;
+}
+
 const role = process.env.CREW_ROLE ?? 'developer';
 const sharedScenario = process.env.CREW_FAKE_SCENARIO ?? 'success';
 const scenario =
@@ -19,6 +33,24 @@ const spec =
   specPath && existsSync(specPath)
     ? JSON.parse(readFileSync(specPath, 'utf8'))
     : null;
+
+if (mode === 'captain') {
+  const prompt = await readStdin();
+  const promptPath = process.env.CREW_FAKE_PROMPT_PATH;
+  if (promptPath) {
+    mkdirSync(path.dirname(promptPath), { recursive: true });
+    writeFileSync(promptPath, prompt, 'utf8');
+  }
+  const request = process.env.CREW_CAPTAIN_REQUEST ?? '';
+  console.log(
+    JSON.stringify({
+      type: 'text',
+      sessionID: process.env.CREW_FAKE_SESSION_ID ?? 'ses_fake_captain',
+      part: { type: 'text', text: `Entendido: he creado la tarea para "${request}".` },
+    }),
+  );
+  process.exit(0);
+}
 
 if (!taskId || !runId || !reportPath) {
   console.error('fake agent: missing CREW_TASK_ID, CREW_RUN_ID, or CREW_REPORT_PATH');

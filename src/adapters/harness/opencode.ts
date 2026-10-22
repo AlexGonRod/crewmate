@@ -1,4 +1,9 @@
-import type { HarnessAdapter, HarnessManifest, LaunchSpec } from './types';
+import type {
+  ChatLaunchSpec,
+  HarnessAdapter,
+  HarnessManifest,
+  LaunchSpec,
+} from './types';
 
 const manifest: HarnessManifest = {
   apiVersion: 'crew.dev/v1',
@@ -58,6 +63,38 @@ export class OpencodeHarness implements HarnessAdapter {
         CREW_BRIEF_PATH: spec.briefPath,
         CREW_REPORT_PATH: spec.reportPath,
         CREW_DB_PATH: spec.dbPath,
+      },
+    };
+  }
+
+  /**
+   * A conversation turn with the captain.
+   *
+   * The prompt goes in on stdin for the same reason as the brief: it starts
+   * with markdown that the CLI would parse as an option. `--session` continues
+   * an existing conversation, so a chat keeps its thread.
+   */
+  buildChatLaunch(spec: ChatLaunchSpec): {
+    command: string;
+    args: string[];
+    env: Record<string, string | undefined>;
+  } {
+    const args = ['run', '--format', 'json', '--auto'];
+    if (spec.agent) {
+      args.push('--agent', spec.agent);
+    }
+    if (spec.model) {
+      args.push('--model', spec.model);
+    }
+    if (spec.sessionId) {
+      args.push('--session', spec.sessionId);
+    }
+    return {
+      command: 'opencode',
+      args,
+      env: {
+        ...process.env,
+        ...spec.env,
       },
     };
   }
