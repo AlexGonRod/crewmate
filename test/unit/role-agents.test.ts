@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   ROLE_CONTRACTS,
+  type RoleContract,
   resolveRoleAgents,
   roleAgentsPath,
   roleAgentsTemplate,
@@ -41,8 +42,17 @@ describe('the default contracts', () => {
       const content = roleAgentsTemplate(contract);
       expect(content).toContain('# ');
       expect(content).toContain('## Reglas duras, por orden de prioridad');
-      expect(content).toContain('## Definición de terminado');
     }
+    for (const contract of ['developer', 'tester', 'scout'] as RoleContract[]) {
+      expect(roleAgentsTemplate(contract)).toContain('## Definición de terminado');
+    }
+  });
+
+  it('gives the captain the contract it has always had', () => {
+    const content = roleAgentsTemplate('captain');
+    expect(content).toContain('# Captain (crew)');
+    expect(content).toContain('## Antes de terminar');
+    expect(content).toContain('Nunca fusiones sin la palabra de la persona');
   });
 
   it('tells the developer not to touch the pipeline', () => {

@@ -90,10 +90,14 @@ describe('role contracts', () => {
   it('lists the contracts and says where they come from', () => {
     const listed = cli(['--json', 'role', 'list', '--project', 'demo']);
     expect(listed.status, listed.stderr).toBe(0);
-    expect(listed.json.contracts).toHaveLength(3);
+    expect(listed.json.contracts).toHaveLength(4);
     for (const contract of listed.json.contracts) {
       expect(contract.source).toBe('default');
     }
+    const captain = listed.json.contracts.find(
+      (contract: any) => contract.role === 'captain',
+    );
+    expect(captain.path).toContain('AGENTS.md');
   });
 
   it('writes a contract in the project so it can be edited', () => {

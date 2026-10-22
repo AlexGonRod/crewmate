@@ -682,10 +682,11 @@ export class Store {
     });
   }
 
+  /** Looks a project up by id, name or root path. */
   getProject(ref: string): Project | null {
     const row = this.db
-      .prepare('SELECT * FROM projects WHERE id = ? OR name = ?')
-      .get(ref, ref) as ProjectRow | undefined;
+      .prepare('SELECT * FROM projects WHERE id = ? OR name = ? OR root_path = ?')
+      .get(ref, ref, ref) as ProjectRow | undefined;
     return row ? toProject(row) : null;
   }
 
@@ -2209,6 +2210,23 @@ export class Store {
       .prepare('DELETE FROM leases WHERE resource = ? AND owner = ?')
       .run(resource, owner);
     return Number(result.changes) > 0;
+  }
+
+  /**
+   * Records an event that does not belong to a task run, like the
+   * conversation with the captain.
+   */
+  recordEvent(input: {
+    aggregateType: string;
+    aggregateId: string;
+    taskId?: string | null;
+    type: string;
+    payload: Record<string, unknown>;
+    actor?: string;
+    correlationId?: string | null;
+    causationId?: string | null;
+  }): EventRecord {
+    return this.appendEvent(input);
   }
 
   listEvents(options: {

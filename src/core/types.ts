@@ -19,7 +19,7 @@ export type DeliveryMode = 'local' | 'pr' | 'auto_merge' | 'scout';
 
 export type Methodology = 'free' | 'spec' | 'tdd';
 
-export type AgentRole = 'developer' | 'tester';
+export type AgentRole = 'developer' | 'tester' | 'captain';
 
 export type PipelineStage = 'develop' | 'test' | 'git' | 'review';
 

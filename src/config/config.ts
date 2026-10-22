@@ -34,6 +34,7 @@ export interface CrewConfig {
   agents: {
     developer: AgentConfig;
     tester: AgentConfig;
+    captain: AgentConfig;
   };
   review: ReviewConfig;
   delivery: DeliveryMode;
@@ -51,6 +52,7 @@ const DEFAULT_CONFIG: CrewConfig = {
   agents: {
     developer: {},
     tester: {},
+    captain: {},
   },
   review: {
     maxIterations: 3,
@@ -108,6 +110,7 @@ function readGlobalConfig(configDir: string): Partial<CrewConfig> {
       result.agents = {
         developer: parseAgentConfig(agents.developer),
         tester: parseAgentConfig(agents.tester),
+        captain: parseAgentConfig(agents.captain),
       };
     }
     if (parsed.review && typeof parsed.review === 'object') {
@@ -171,6 +174,9 @@ const SETTABLE_KEYS = [
   'agents.tester.harness',
   'agents.tester.agent',
   'agents.tester.model',
+  'agents.captain.harness',
+  'agents.captain.agent',
+  'agents.captain.model',
 ] as const;
 
 export type SettableKey = (typeof SETTABLE_KEYS)[number];
@@ -221,6 +227,10 @@ export function loadContext(options: { dbPath?: string } = {}): ResolvedContext 
       tester: {
         ...DEFAULT_CONFIG.agents.tester,
         ...stored.agents?.tester,
+      },
+      captain: {
+        ...DEFAULT_CONFIG.agents.captain,
+        ...stored.agents?.captain,
       },
     },
     review: {
