@@ -34,7 +34,10 @@ export interface CaptainTurnInput {
 }
 
 export interface CaptainTurnResult {
+  /** The last thing the captain said: its answer. */
   text: string;
+  /** Everything the captain said during the turn. */
+  transcript: string;
   sessionId: string | null;
   exitCode: number | null;
   timedOut: boolean;
@@ -51,6 +54,7 @@ export interface CaptainTurnResult {
  */
 export function parseCaptainOutput(output: string): {
   text: string;
+  transcript: string;
   sessionId: string | null;
 } {
   const texts: string[] = [];
@@ -74,16 +78,21 @@ export function parseCaptainOutput(output: string): {
     }
     if (parsed.type === 'text') {
       const part = parsed.part as Record<string, unknown> | undefined;
-      if (part && typeof part.text === 'string') {
-        texts.push(part.text);
+      if (part && typeof part.text === 'string' && part.text.trim()) {
+        texts.push(part.text.trim());
       }
     }
   }
 
   if (sawJson) {
-    return { text: texts.join('\n').trim(), sessionId };
+    // The agent speaks in several messages; the last one is its answer.
+    return {
+      text: texts.at(-1) ?? '',
+      transcript: texts.join('\n\n'),
+      sessionId,
+    };
   }
-  return { text: output.trim(), sessionId };
+  return { text: output.trim(), transcript: output.trim(), sessionId };
 }
 
 function captainDirectory(context: ResolvedContext, sessionKey: string): string {
@@ -120,6 +129,8 @@ export async function runCaptainTurn(
     memory: input.store.listMemories(input.project.id),
     skills: discoverSkills({ projectRoot: input.project.rootPath }),
     crewCommand,
+    workerHarness:
+      input.context.config.agents.developer.harness ?? input.context.config.harness,
     history: input.history,
   });
 
@@ -190,6 +201,7 @@ export async function runCaptainTurn(
 
   return {
     text: parsed.text,
+    transcript: parsed.transcript,
     sessionId: parsed.sessionId ?? input.sessionId ?? null,
     exitCode: result.exitCode,
     timedOut: result.timedOut,

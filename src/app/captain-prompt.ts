@@ -24,6 +24,8 @@ export interface CaptainPromptInput {
   memory: Memory[];
   skills: DiscoveredSkill[];
   crewCommand: string;
+  /** The harness the workers of this project run with. */
+  workerHarness: string;
   history?: CaptainTurn[];
 }
 
@@ -53,6 +55,9 @@ function renderContext(input: CaptainPromptInput): string {
       .join(', ')})`,
   );
   lines.push(`- Daemon: ${brief.lease ? (brief.lease.active ? 'activo' : 'expirado') : 'sin daemon'}`);
+  lines.push(
+    `- Harness de los workers: ${input.workerHarness} (las tareas se ejecutan con este)`,
+  );
   if (brief.activeRuns.length > 0) {
     lines.push(
       `- Runs activos: ${brief.activeRuns
@@ -154,7 +159,12 @@ ${input.crewCommand} --json task create --project ${input.project.name} \\
 ${input.crewCommand} --json task queue <id>            # encola la tarea para el daemon
 ${input.crewCommand} --json status                     # estado global
 ${input.crewCommand} --json captain brief              # contexto actualizado
+${input.crewCommand} <comando> --help                  # sintaxis de un comando
 \`\`\`
+
+No leas el código de \`crew\` para usar la CLI: \`--help\` es la documentación.
+Cuando crees la tarea, no esperes a que termine el trabajo: crea, encola y
+explica qué has creado.
 
 Si la petición es ambigua, dile a la persona qué necesitas antes de crear
 nada. Si pide varios cambios, escribe un plan (\`crew plan apply\`) en vez de
