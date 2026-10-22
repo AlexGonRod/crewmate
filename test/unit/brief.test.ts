@@ -137,11 +137,12 @@ describe('brief generation', () => {
     expect(brief).toContain('role: "tester"');
     expect(brief).toContain('stage: "test"');
     expect(brief).toContain('review_iteration: 1');
-    expect(brief).toContain('## Role: Tester');
+    expect(brief).toContain('## Role contract (tester)');
+    expect(brief).toContain('# Tester (crew)');
+    expect(brief).toContain('Nunca modifiques el código');
     expect(brief).toContain('crew.report/v3');
     expect(brief).toContain('"verdict": "approve"');
     expect(brief).toContain('CREW_DEVELOPER_REPORT_PATH` = /tmp/worktree/.crew/reports/dev-run.json');
-    expect(brief).toContain('Do not modify source files');
     expect(brief).not.toContain('## Methodology: TDD');
   });
 

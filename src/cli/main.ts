@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, CommanderError } from 'commander';
@@ -61,6 +61,13 @@ import {
 import { answerTaskInEditor, reviewTask } from '../app/review-flow';
 import { taskDeliveryModeFor } from '../app/delivery';
 import { discoverSkills, findProjectRoot } from '../app/skills';
+import {
+  ROLE_CONTRACTS,
+  resolveRoleAgents,
+  roleAgentsPath,
+  roleAgentsTemplate,
+  type RoleContract,
+} from '../app/role-agents';
 import { openInEditor } from '../app/editor';
 import { getForge } from '../forges';
 import {
@@ -2227,6 +2234,116 @@ function buildProgram(): Command {
           { key: 'source', label: 'SOURCE' },
         ],
       );
+    });
+
+  const role = program
+    .command('role')
+    .description('the contracts that say how each role must work');
+
+  role
+    .command('list')
+    .description('list the role contracts and where they come from')
+    .option('--project <ref>', 'include the contracts of a registered project')
+    .action(async (options: { project?: string }) => {
+      let projectRoot: string | null = null;
+      if (options.project) {
+        const project = await withStore((store) => store.getProject(options.project as string));
+        if (!project) {
+          throw new CrewError('PROJECT_NOT_FOUND', `Project not found: ${options.project}`);
+        }
+        projectRoot = project.rootPath;
+      } else {
+        projectRoot = findProjectRoot();
+      }
+      const contracts = ROLE_CONTRACTS.map((contract) => {
+        const resolution = resolveRoleAgents(contract, { projectRoot });
+        return {
+          role: contract,
+          source: resolution.source,
+          path: resolution.path,
+        };
+      });
+      if (globalOptions().json) {
+        printJson({ projectRoot, count: contracts.length, contracts });
+        return;
+      }
+      printTable(
+        contracts.map((contract) => ({
+          role: contract.role,
+          source: contract.source,
+          path: contract.path ?? '',
+        })),
+        [
+          { key: 'role', label: 'ROLE' },
+          { key: 'source', label: 'SOURCE' },
+          { key: 'path', label: 'PATH' },
+        ],
+      );
+    });
+
+  role
+    .command('show')
+    .description('print the contract of a role')
+    .argument('<role>', 'developer, tester or scout')
+    .option('--project <ref>', 'use the contract of a registered project')
+    .action(async (roleName: string, options: { project?: string }) => {
+      const contract = roleName as RoleContract;
+      if (!ROLE_CONTRACTS.includes(contract)) {
+        throw new CrewError(
+          'ROLE_UNKNOWN',
+          `Unknown role: ${roleName}. Known roles: ${ROLE_CONTRACTS.join(', ')}`,
+        );
+      }
+      let projectRoot: string | null = null;
+      if (options.project) {
+        const project = await withStore((store) => store.getProject(options.project as string));
+        if (!project) {
+          throw new CrewError('PROJECT_NOT_FOUND', `Project not found: ${options.project}`);
+        }
+        projectRoot = project.rootPath;
+      } else {
+        projectRoot = findProjectRoot();
+      }
+      const resolution = resolveRoleAgents(contract, { projectRoot });
+      if (globalOptions().json) {
+        printJson({
+          role: contract,
+          source: resolution.source,
+          path: resolution.path,
+          contract: resolution.content,
+        });
+        return;
+      }
+      console.log(resolution.content);
+    });
+
+  role
+    .command('init')
+    .description('write a role contract in the current repository so it can be edited')
+    .argument('<role>', 'developer, tester or scout')
+    .option('--force', 'overwrite an existing contract')
+    .action((roleName: string, options: { force?: boolean }) => {
+      const contract = roleName as RoleContract;
+      if (!ROLE_CONTRACTS.includes(contract)) {
+        throw new CrewError(
+          'ROLE_UNKNOWN',
+          `Unknown role: ${roleName}. Known roles: ${ROLE_CONTRACTS.join(', ')}`,
+        );
+      }
+      const target = roleAgentsPath(process.cwd(), contract);
+      if (existsSync(target) && !options.force) {
+        throw new CrewError(
+          'ROLE_AGENTS_EXISTS',
+          `${target} already exists; use --force to overwrite it`,
+        );
+      }
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, roleAgentsTemplate(contract), 'utf8');
+      if (globalOptions().json) {
+        printJson({ role: contract, path: target, created: true });
+        return;
+      }
+      console.log(`Wrote ${target}`);
     });
 
   program

@@ -433,3 +433,4 @@ concurrencia.
 - ADR 0031: backends de sesión visibles (tmux y Herdr).
 - ADR 0032: los gates son una cuestión de autoridad (ruta, yolo, veto humano).
 - ADR 0033: los skills como capa de procedimientos del crew.
+- ADR 0034: un contrato de rol por rol, con la forma de un `AGENTS.md`.

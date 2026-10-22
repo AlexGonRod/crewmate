@@ -39,9 +39,10 @@ afterEach(() => {
 
 describe('skill roots', () => {
   it('looks in the three global and the three project places', () => {
-    const roots = skillRoots('/repo');
+    const roots = skillRoots('/repo', '/home/tester');
     expect(roots.global).toHaveLength(3);
     expect(roots.global[0]).toContain(path.join('.config', 'opencode', 'skills'));
+    expect(roots.global[0]).toContain('/home/tester');
     expect(roots.global[1]).toContain(path.join('.claude', 'skills'));
     expect(roots.global[2]).toContain(path.join('.agents', 'skills'));
     expect(roots.project).toHaveLength(3);
@@ -59,7 +60,7 @@ describe('discoverSkills', () => {
     writeSkill(path.join(repo, '.opencode', 'skills'), 'astro', 'Astro guide');
     writeSkill(path.join(repo, '.agents', 'skills'), 'review', 'How to review');
 
-    const skills = discoverSkills({ projectRoot: repo });
+    const skills = discoverSkills({ projectRoot: repo, home: tempDir() });
     expect(skills.map((skill) => skill.name)).toEqual(['astro', 'review']);
     expect(skills[0]?.description).toBe('Astro guide');
     expect(skills[0]?.scope).toBe('project');
@@ -68,7 +69,7 @@ describe('discoverSkills', () => {
   it('ignores a skill without frontmatter', () => {
     const repo = tempDir();
     writeSkill(path.join(repo, '.opencode', 'skills'), 'broken', '', { broken: true });
-    expect(discoverSkills({ projectRoot: repo })).toEqual([]);
+    expect(discoverSkills({ projectRoot: repo, home: tempDir() })).toEqual([]);
   });
 
   it('ignores a dangling symlink', () => {
@@ -76,19 +77,22 @@ describe('discoverSkills', () => {
     const skillsDir = path.join(repo, '.opencode', 'skills');
     mkdirSync(skillsDir, { recursive: true });
     symlinkSync(path.join(repo, 'nowhere'), path.join(skillsDir, 'ghost'));
-    expect(discoverSkills({ projectRoot: repo })).toEqual([]);
+    expect(discoverSkills({ projectRoot: repo, home: tempDir() })).toEqual([]);
   });
 
   it('lets the project win over a global skill with the same name', () => {
     const repo = tempDir();
+    const home = tempDir();
     writeSkill(path.join(repo, '.opencode', 'skills'), 'shared', 'the project one');
-    const skills = discoverSkills({ projectRoot: repo });
+    writeSkill(path.join(home, '.agents', 'skills'), 'shared', 'the global one');
+    const skills = discoverSkills({ projectRoot: repo, home });
     const shared = skills.find((skill) => skill.name === 'shared');
     expect(shared?.scope).toBe('project');
+    expect(shared?.description).toBe('the project one');
   });
 
   it('returns an empty list when there is nothing', () => {
-    expect(discoverSkills({ projectRoot: tempDir() })).toEqual([]);
+    expect(discoverSkills({ projectRoot: tempDir(), home: tempDir() })).toEqual([]);
   });
 });
 

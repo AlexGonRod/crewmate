@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdtempSync,
+  readdirSync,
   mkdirSync,
   readFileSync,
   rmSync,
@@ -193,6 +194,16 @@ describe('phase 0 walking skeleton', () => {
     const worktree = result.json.task.worktreePath as string;
     expect(existsSync(path.join(worktree, 'FAKE_AGENT_OUTPUT.txt'))).toBe(true);
     expect(existsSync(path.join(worktree, '.crew', 'brief.md'))).toBe(true);
+    const brief = readFileSync(path.join(worktree, '.crew', 'brief.md'), 'utf8');
+    expect(brief).toContain('## Role contract (tester)');
+    const briefs = path.join(tempRoot, 'data', 'tasks', id);
+    const stored = readdirSync(briefs).filter((file) => file.startsWith('brief-'));
+    expect(stored.length).toBeGreaterThanOrEqual(2);
+    const contracts = stored
+      .map((file) => readFileSync(path.join(briefs, file), 'utf8'))
+      .map((content) => content.match(/## Role contract \(([^)]+)\)/)?.[1]);
+    expect(contracts).toContain('developer');
+    expect(contracts).toContain('tester');
     writeFileSync(path.join(worktree, 'dirty.txt'), 'dirty\n');
 
     const refused = cli(['task', 'clean', id]);

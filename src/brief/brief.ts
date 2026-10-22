@@ -1,3 +1,4 @@
+import { roleAgentsTemplate, type RoleContract } from '../app/role-agents';
 import type { DiscoveredSkill } from '../app/skills';
 import type {
   AgentRole,
@@ -32,6 +33,8 @@ export interface BriefInput {
   messages: Message[];
   memories?: Memory[];
   skills?: DiscoveredSkill[];
+  /** The contract of the role, already resolved for this project. */
+  roleAgents?: string;
 }
 
 /** The brief is paid by every agent of every task: the list is capped. */
@@ -197,71 +200,35 @@ A \`done\` report must include a \`passed\` entry for ${criteriaList} in
 `;
 }
 
-function renderScoutInstructions(): string {
-  return `## Role: Scout (research)
-
-You are investigating a question about this repository. Your deliverable is a
-report, not a change.
-
-1. Read the goal, the project memory and the relevant parts of the repository.
-2. Investigate with read-only tools. You may run read-only commands and
-   tests, but you must not modify, create or delete files, and you must not
-   commit, push or open pull requests.
-3. Report what you found: the files and commands that matter, the evidence
-   behind each conclusion, and what remains unknown.
-4. Report open questions in \`follow_ups\` and doubts in \`findings\` with a
-   severity of \`warning\` or \`info\`.
-
-Emit a \`crew.report/v3\` report with \`role\` set to \`developer\`, status
-\`done\` and the findings in the \`findings\` array.
-`;
-}
-
 function renderRoleInstructions(input: {
   role: AgentRole;
+  methodology: Methodology;
   reviewIteration: number;
   developerReportPath?: string;
   scout?: boolean;
+  roleAgents?: string;
 }): string {
-  if (input.scout && input.role === 'developer') {
-    return renderScoutInstructions();
-  }
+  const contract: RoleContract =
+    input.scout && input.role === 'developer'
+      ? 'scout'
+      : input.role === 'tester'
+        ? 'tester'
+        : 'developer';
 
-  if (input.role === 'tester') {
-    const developerReport = input.developerReportPath
-      ? `- Developer report: \`${input.developerReportPath}\``
-      : '- Developer report: not available';
-    return `## Role: Tester
+  const content =
+    input.roleAgents ??
+    roleAgentsTemplate(contract, {
+      reviewIteration: input.reviewIteration,
+      methodology: input.methodology,
+      developerReportPath: input.developerReportPath,
+    });
 
-You are the independent tester. Verify the developer's work; do not implement
-or fix the task yourself.
+  return `## Role contract (${contract})
 
-1. Read the spec, the developer report, and the current worktree/diff.
-2. If "Independent verification" evidence is present, use it; otherwise run the
-   configured verification commands yourself. Inspect the changes either way.
-3. Check every acceptance criterion against real evidence.
-4. Emit a \`crew.report/v3\` report with verdict \`approve\` or \`reject\`.
+This contract is the authority for how you work in this run. It says what you
+must do, what you must not do, and what you report.
 
-${developerReport}
-- Review iteration: ${input.reviewIteration}
-- Do not modify source files, commit, push, or merge.
-- \`approve\` requires status \`done\` and \`passed\` evidence for every
-  acceptance criterion. \`reject\` requires status \`failed\` and at least one
-  \`blocking\` finding explaining what must change.
-`;
-  }
-
-  return `## Role: Developer
-
-Implement the task inside the isolated worktree.
-
-- Review iteration: ${input.reviewIteration}
-${
-  input.reviewIteration > 0
-    ? '- Address the tester feedback in "Previous messages" before reporting done.\n'
-    : ''
-}
-- Do not push, merge, or open pull requests.
+${content}
 `;
 }
 
@@ -421,9 +388,11 @@ export function generateBrief(input: BriefInput): string {
   const verificationSection = renderVerifications(input.verifications);
   const roleSection = renderRoleInstructions({
     role,
+    methodology,
     reviewIteration,
     developerReportPath,
     scout: task.deliveryMode === 'scout',
+    roleAgents: input.roleAgents,
   });
   const methodologySection =
     role === 'developer' ? renderMethodology(methodology, spec) : '';

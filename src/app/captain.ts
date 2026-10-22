@@ -73,6 +73,21 @@ crew --json memory rm <id>
 Usa la memoria antes de inventar convenciones nuevas. Actualízala cuando una
 decisión cambie, no cuando acumules.
 
+## Contratos de rol
+
+Cada rol de \`crew\` tiene un contrato: las reglas duras del developer, del
+tester y del scout. Viajan en el brief de cada agente, y un proyecto puede
+cambiar el suyo.
+
+\`\`\`sh
+crew --json role list                    # contratos y de dónde salen
+crew --json role show tester             # el contrato del tester
+crew --json role init tester             # escribe el contrato en el proyecto, para editarlo
+\`\`\`
+
+Cuando un worker se desvía de su contrato, el problema no es del worker: suele
+ser del contrato. Revísalo con \`crew role show <rol>\` antes de reintentar.
+
 ## Skills
 
 Un skill es un \`SKILL.md\` con un disparador declarado en su descripción: la
@@ -105,6 +120,7 @@ crew --json task accept <id>
 crew --json task reject <id> <motivo>
 crew --json daemon run --once             # procesa la cola
 crew --json skills list                   # skills disponibles para los agentes
+crew --json role list                     # contratos de rol y de dónde salen
 \`\`\`
 
 ## Peticiones con varios cambios

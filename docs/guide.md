@@ -283,7 +283,28 @@ decisiones, trampas), las tareas (lo que queda abierto) o `.stow-notes.md`
 (la reserva privada). Pregunta una vez si el destino es ambiguo y cierra con
 un veredicto honesto de qué se capturó y qué no.
 
-## 9. Memoria del proyecto
+## 9. Los contratos de rol
+
+Cada rol de `crew` tiene un contrato con la forma de un `AGENTS.md`: reglas
+duras por prioridad, procedimiento, definición de terminado y qué se
+reporta. Viaja en el brief del agente, así que siempre se lee.
+
+```sh
+crew --json role list                  # contratos y de dónde salen
+crew --json role show tester           # el contrato del tester
+crew --json role init tester           # lo escribe en el proyecto, para editarlo
+```
+
+| Rol | Sus reglas duras |
+| --- | --- |
+| `developer` | no escribe fuera de su worktree, no toca el pipeline, nada hecho sin evidencia, no se sale del brief |
+| `tester` | no modifica el código, no confía en el informe del developer, verifica él mismo, rechaza con un hallazgo bloqueante |
+| `scout` | solo lee, el informe es el entregable, no arregla "de paso" |
+
+Si un proyecto quiere otra disciplina, `crew role init <rol>` escribe el
+contrato en `.crew/roles/<rol>.md` y ese manda sobre el del motor.
+
+## 10. Memoria del proyecto
 
 Notas durables que llegan al brief de cada agente (convenciones, decisiones,
 trampas):
@@ -296,7 +317,7 @@ crew memory list --project mi-proyecto
 
 ---
 
-## 10. Investigación sin cambios
+## 11. Investigación sin cambios
 
 ```sh
 crew scout --project mi-proyecto --title "Cómo funciona el cache" \
@@ -307,7 +328,7 @@ Un `scout` no toca código: produce un informe y termina en `review`.
 
 ---
 
-## 11. Workers remotos
+## 12. Workers remotos
 
 Si el host remoto tiene el repo, el worktree, el commit y el push ocurren
 allí:
@@ -330,7 +351,7 @@ Sin `repo_path`, el host remoto tiene que ver la misma ruta del worktree
 
 ---
 
-## 12. Panel web
+## 13. Panel web
 
 ```sh
 crew ui --port 4173
@@ -340,7 +361,7 @@ Solo lectura: resumen, tareas, gates, riesgo, CI. Bind a `127.0.0.1`.
 
 ---
 
-## 13. Referencia rápida
+## 14. Referencia rápida
 
 | Quiero… | Comando |
 | --- | --- |
@@ -360,7 +381,7 @@ Solo lectura: resumen, tareas, gates, riesgo, CI. Bind a `127.0.0.1`.
 
 ---
 
-## 14. Problemas frecuentes
+## 15. Problemas frecuentes
 
 **"verification is none" y no deja mergear.** El proyecto no tiene comandos
 `verify`. Añádelos a `.crew/config.yaml`.
@@ -392,7 +413,7 @@ clean <id> --force` para los worktrees, y `crew doctor` para ver qué queda.
 
 ---
 
-## 15. Cómo se desarrolla `crew`
+## 16. Cómo se desarrolla `crew`
 
 ```sh
 pnpm test          # 260 tests

@@ -17,6 +17,7 @@ import type {
 import { readProjectConfig } from '../config/config';
 import type { ResolvedContext } from '../config/config';
 import { ensureWorkspace, removeWorkspace, type Workspace } from './workspace';
+import { resolveRoleAgents, roleContractFor } from './role-agents';
 import { discoverSkills } from './skills';
 import { assertHarnessAvailable } from '../adapters/harness/detect';
 import { getHarness, resolveHarnessId } from '../adapters/harness/registry';
@@ -143,6 +144,17 @@ export async function runStage(
   options.workspace.ensureDir(path.dirname(reportPath));
 
   const projectConfig = readProjectConfig(project.rootPath);
+  const roleAgents = resolveRoleAgents(
+    roleContractFor(role, task.deliveryMode),
+    {
+      projectRoot: project.rootPath,
+      context: {
+        reviewIteration: task.reviewIterations,
+        methodology: task.methodology,
+        developerReportPath: options.developerReportPath,
+      },
+    },
+  );
   const brief = generateBrief({
     task,
     project,
@@ -164,6 +176,7 @@ export async function runStage(
     messages: store.listMessages(task.id),
     memories: store.listMemories(project.id),
     skills: discoverSkills({ projectRoot: project.rootPath }),
+    roleAgents: roleAgents.content,
   });
   writeFileSync(briefDataPath, brief, 'utf8');
   options.workspace.writeFile(briefPath, brief);

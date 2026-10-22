@@ -21,6 +21,7 @@ mantiene coherente.
 | `docs/roadmap.md` | el estado | al cerrar una fase |
 | `README.md` | el índice y el resumen | cuando cambia la superficie pública |
 | `src/app/captain.ts` | el `AGENTS.md` del capitán | cuando cambia el contrato del capitán |
+| `src/app/role-agents.ts` | los contratos de rol (developer, tester, scout) | cuando cambia la disciplina de un rol |
 | `contracts/` | los esquemas | cuando cambia un formato, y solo ahí |
 | `skills/` | los procedimientos | cuando cambia un procedimiento |
 
@@ -68,6 +69,7 @@ Un cambio en el motor cambia lo que el capitán ve y lo que los agentes
 reciben. Antes de darlo por bueno:
 
 - ¿El `AGENTS.md` del capitán sigue diciendo la verdad?
+- ¿Los contratos de rol siguen diciendo la verdad? (`src/app/role-agents.ts`)
 - ¿La guía sigue teniendo los comandos correctos?
 - ¿Los skills siguen teniendo los disparadores correctos?
 - ¿El esquema del informe y su test siguen de acuerdo?

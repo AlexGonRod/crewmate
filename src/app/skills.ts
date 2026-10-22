@@ -24,8 +24,10 @@ export interface SkillRoots {
  * Global: ~/.config/opencode/skills, ~/.claude/skills, ~/.agents/skills.
  * Project: <root>/.opencode/skills, <root>/.claude/skills, <root>/.agents/skills.
  */
-export function skillRoots(projectRoot?: string | null): SkillRoots {
-  const home = homedir();
+export function skillRoots(
+  projectRoot?: string | null,
+  home: string = homedir(),
+): SkillRoots {
   const global = [
     path.join(home, '.config', 'opencode', 'skills'),
     path.join(home, '.claude', 'skills'),
@@ -122,9 +124,9 @@ function readSkillDirectory(
  * ones with the same name.
  */
 export function discoverSkills(
-  options: { projectRoot?: string | null } = {},
+  options: { projectRoot?: string | null; home?: string } = {},
 ): DiscoveredSkill[] {
-  const roots = skillRoots(options.projectRoot);
+  const roots = skillRoots(options.projectRoot, options.home ?? homedir());
   const found = new Map<string, DiscoveredSkill>();
   for (const root of roots.global) {
     for (const skill of readSkillDirectory(root, 'global')) {

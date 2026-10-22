@@ -442,6 +442,30 @@ delivery:
 
 Ver ADR 0032 y el skill `crew-merge-authority`.
 
+## Contratos de rol
+
+Cada rol tiene un contrato con la forma de un `AGENTS.md`: reglas duras por
+prioridad, procedimiento, definición de terminado y qué se reporta. Viaja en
+el brief del agente, así que siempre se lee.
+
+```sh
+crew --json role list                  # contratos y de dónde salen
+crew --json role show tester           # el contrato del tester
+crew --json role init tester           # lo escribe en el proyecto, para editarlo
+```
+
+- `developer`: no escribe fuera de su worktree, no toca el pipeline, no
+  declara nada hecho sin evidencia y no se sale del brief.
+- `tester`: no modifica el código, no confía en el informe del developer,
+  ejecuta las verificaciones él mismo y rechaza con un hallazgo bloqueante.
+- `scout`: solo lee; su entregable es el informe, y no arregla "de paso".
+
+Un proyecto puede cambiar el contrato de un rol con
+`crew role init <rol>`: lo escribe en `.crew/roles/<rol>.md` y ese manda
+sobre el del motor.
+
+Ver ADR 0034.
+
 ## Skills
 
 Los skills son la capa de procedimientos: cosas que solo aplican en una
