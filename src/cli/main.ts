@@ -45,6 +45,7 @@ import {
 import { CrewError, errorMessage } from '../core/errors';
 import { isPidAlive, terminateProcessTree } from '../core/process';
 import { redactDeep } from '../core/redact';
+import { nowIso } from '../core/ids';
 import type {
   DeliveryMode,
   MemoryKind,
@@ -190,6 +191,60 @@ function parseConfigValue(value: string): string | number | boolean {
     return Number(value);
   }
   return value;
+}
+
+const MEMORY_FILE_SCHEMA = 'crew.memory/v1';
+
+interface MemoryFileEntry {
+  kind?: string;
+  title?: unknown;
+  body?: unknown;
+}
+
+interface MemoryFilePayload {
+  schema: string;
+  project?: string;
+  exported_at?: string;
+  memories?: MemoryFileEntry[];
+}
+
+function isMemoryKind(kind?: string): kind is MemoryKind {
+  return (
+    kind === 'convention' ||
+    kind === 'decision' ||
+    kind === 'pitfall' ||
+    kind === 'glossary' ||
+    kind === 'context'
+  );
+}
+
+function memorySyncKey({ kind, title, body }: { kind: MemoryKind; title: string; body: string }): string {
+  return `${kind}\n${title}\n${body}`;
+}
+
+function readMemoryFile(file: string): MemoryFileEntry[] {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    throw new CrewError('INVALID_MEMORY_FILE', `Invalid memory file: ${file}`);
+  }
+  if (typeof payload !== 'object' || payload === null) {
+    throw new CrewError('INVALID_MEMORY_FILE', `Invalid memory file: ${file}`);
+  }
+  const parsed = payload as Partial<MemoryFilePayload>;
+  if (parsed.schema !== MEMORY_FILE_SCHEMA || !Array.isArray(parsed.memories)) {
+    throw new CrewError(
+      'INVALID_MEMORY_FILE',
+      `Invalid memory file: ${file}. expected schema ${MEMORY_FILE_SCHEMA} and a memories array`,
+    );
+  }
+  return parsed.memories;
+}
+
+function writeMemoryFile(file: string, payload: MemoryFilePayload): void {
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 function sessionStateDir(): string {
@@ -1841,6 +1896,123 @@ function buildProgram(): Command {
           { key: 'body', label: 'BODY' },
         ],
       );
+    });
+
+  memory
+    .command('search <query>')
+    .description('full-text search over memory (title and body)')
+    .option('--project <ref>', 'project id or name')
+    .option('--kind <kind>', 'filter by kind')
+    .option('--limit <n>', 'maximum results', Number, 50)
+    .action(async (query: string, options: { project?: string; kind?: string; limit?: number }) => {
+      const result = await withStore((store) => {
+        let projectId: string | undefined;
+        if (options.project) {
+          const project = store.getProject(options.project);
+          if (!project) {
+            throw new CrewError('PROJECT_NOT_FOUND', `Project not found: ${options.project}`);
+          }
+          projectId = project.id;
+        }
+        return store.searchMemories(query, {
+          projectId,
+          kind: options.kind as MemoryKind | undefined,
+          limit: options.limit,
+        });
+      });
+      if (globalOptions().json) {
+        printJson({ memories: result });
+        return;
+      }
+      if (result.length === 0) {
+        console.log('No memories found');
+        return;
+      }
+      printTable(
+        result.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          title: item.title,
+          source: item.source,
+          body: item.body,
+        })),
+        [
+          { key: 'id', label: 'ID' },
+          { key: 'kind', label: 'KIND' },
+          { key: 'title', label: 'TITLE' },
+          { key: 'source', label: 'SOURCE' },
+          { key: 'body', label: 'BODY' },
+        ],
+      );
+    });
+
+  memory
+    .command('sync')
+    .description('import and export the memory of a project from/into <repo>/.crew/memory.json')
+    .requiredOption('--project <ref>', 'project id or name')
+    .action(async (options: { project: string }) => {
+      const result = await withStore((store) => {
+        const project = store.getProject(options.project);
+        if (!project) {
+          throw new CrewError('PROJECT_NOT_FOUND', `Project not found: ${options.project}`);
+        }
+        const file = path.join(project.rootPath, '.crew', 'memory.json');
+
+        let entries: Array<{ kind?: string; title?: unknown; body?: unknown }> = [];
+        if (existsSync(file)) {
+          entries = readMemoryFile(file);
+        }
+        const existing = store.listMemories(project.id);
+        const known = new Set(existing.map(memorySyncKey));
+
+        let imported = 0;
+        let skipped = 0;
+        const seen = new Set<string>();
+        for (const entry of entries) {
+          const kind = isMemoryKind(entry.kind) ? entry.kind : 'context';
+          const title = typeof entry.title === 'string' ? entry.title.trim() : '';
+          const body = typeof entry.body === 'string' ? entry.body.trim() : '';
+          if (!title || !body) {
+            continue;
+          }
+          const key = memorySyncKey({ kind, title, body });
+          if (seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+          if (known.has(key)) {
+            skipped += 1;
+            continue;
+          }
+          store.addMemory({ projectId: project.id, kind, title, body, source: 'user' });
+          known.add(key);
+          imported += 1;
+        }
+
+        const memories = store.listMemories(project.id);
+        writeMemoryFile(
+          file,
+          {
+            schema: 'crew.memory/v1',
+            project: project.name,
+            exported_at: nowIso(),
+            memories: memories.map((item) => ({
+              kind: item.kind,
+              title: item.title,
+              body: item.body,
+              created_at: item.createdAt,
+            })),
+          },
+        );
+        return { file, imported, skipped, total: memories.length };
+      });
+      if (globalOptions().json) {
+        printJson(result);
+      } else {
+        console.log(
+          `Memory sync: ${result.imported} imported, ${result.skipped} skipped, ${result.total} total (${result.file})`,
+        );
+      }
     });
 
   memory

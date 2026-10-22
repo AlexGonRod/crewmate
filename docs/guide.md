@@ -340,8 +340,13 @@ trampas):
 ```sh
 crew memory add --project mi-proyecto --kind convention \
   --title "Commits en inglés" --body "Usamos imperative mood."
-crew memory list --project mi-proyecto
+crew memory search "commits" --project mi-proyecto
+crew memory sync --project mi-proyecto
 ```
+
+`crew memory sync` sincroniza la memoria con el repositorio: importa de y
+exporta a `.crew/memory.json`, que se commitea con el proyecto, así la
+memoria viaja también con las máquinas y las revisiones de código.
 
 ---
 

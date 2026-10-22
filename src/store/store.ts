@@ -550,6 +550,24 @@ export class Store {
     insert.run(4, nowIso());
     insert.run(5, nowIso());
     insert.run(6, nowIso());
+    const [versionRow] = (
+      this.db.prepare('SELECT MAX(version) AS v FROM schema_migrations').all() as unknown as Array<{
+        v: number | null;
+      }>
+    ).slice(0, 1);
+    if ((versionRow?.v ?? 0) < 7) {
+      this.db.exec("INSERT INTO memories_fts(memories_fts) VALUES ('rebuild')");
+      insert.run(7, nowIso());
+    }
+  }
+
+  private ftsQuery(text: string): string {
+    const terms = text
+      .replace(/["'\\/()^:]/g, ' ')
+      .split(/\s+/)
+      .filter((term) => term.length > 0)
+      .map((term) => `"${term}"`);
+    return terms.join(' ');
   }
 
   private transaction<T>(fn: () => T): T {
@@ -910,6 +928,37 @@ export class Store {
       | MemoryRow
       | undefined;
     return row ? toMemory(row) : null;
+  }
+
+  searchMemories(
+    query: string,
+    options: { projectId?: string; kind?: MemoryKind; limit?: number } = {},
+  ): Memory[] {
+    const text = query.trim();
+    if (!text) {
+      return [];
+    }
+    const where = ['memories_fts MATCH ?'];
+    const params: Array<string | number> = [this.ftsQuery(text)];
+    if (options.projectId) {
+      where.push('m.project_id = ?');
+      params.push(options.projectId);
+    }
+    if (options.kind) {
+      where.push('m.kind = ?');
+      params.push(options.kind);
+    }
+    params.push(options.limit ?? 50);
+    const rows = this.db
+      .prepare(
+        `SELECT m.* FROM memories_fts f
+         JOIN memories m ON m.rowid = f.rowid
+         WHERE ${where.join(' AND ')}
+         ORDER BY rank, m.created_at DESC
+         LIMIT ?`,
+      )
+      .all(...params) as unknown as MemoryRow[];
+    return rows.map(toMemory);
   }
 
   deleteMemory(id: string): boolean {

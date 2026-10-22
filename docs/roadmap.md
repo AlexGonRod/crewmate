@@ -450,3 +450,5 @@ concurrencia.
 - ADR 0036: el motor escribe el seguimiento y el capitán responde preguntas.
 - ADR 0037: el recibo del candidato revisado (el merge exige el head vigente).
 - ADR 0038: el gate de higiene de commit (rutas prohibidas y secretos, fail-closed).
+- ADR 0039: memoria v2 — búsqueda FTS5 (`memory search`) y sincronía con el
+  repositorio (`memory sync` → `.crew/memory.json`).

@@ -152,6 +152,22 @@ CREATE TABLE IF NOT EXISTS memories (
 
 CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project_id, created_at);
 
+CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+  title,
+  body,
+  content='memories',
+  content_rowid='rowid'
+);
+
+CREATE TRIGGER IF NOT EXISTS memories_fts_ai AFTER INSERT ON memories BEGIN
+  INSERT INTO memories_fts(rowid, title, body) VALUES (new.rowid, new.title, new.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS memories_fts_ad AFTER DELETE ON memories BEGIN
+  INSERT INTO memories_fts(memories_fts, rowid, title, body)
+  VALUES ('delete', old.rowid, old.title, old.body);
+END;
+
 CREATE TABLE IF NOT EXISTS task_dependencies (
   task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   depends_on_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,

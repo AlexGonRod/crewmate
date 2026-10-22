@@ -154,7 +154,9 @@ crew task clean tsk_... --force
 | `crew sessions kill <name>` | Cierra una sesión visible |
 | `crew scout --project <ref> --title <t> --question <pregunta> [--queue]` | Crea una tarea de investigación que produce un informe |
 | `crew memory add --project <ref> --kind <kind> --title <t> --body <texto>` | Añade una nota durable al proyecto |
+| `crew memory search "<texto>" [--project <ref>] [--kind <kind>]` | Búsqueda de texto libre en la memoria |
 | `crew memory list --project <ref> [--kind <kind>]` | Lista la memoria del proyecto |
+| `crew memory sync --project <ref>` | Importa/exporta la memoria a `<repo>/.crew/memory.json` |
 | `crew memory rm <id>` | Elimina una nota de la memoria |
 | `crew progress <id> [--events <n>]` | Informa del avance de una tarea en lenguaje natural y de qué toca ahora |
 | `crew status [--limit <n>]` | Resumen global: lease, conteo por estado, runs activos y tareas recientes con riesgo y CI |
@@ -673,7 +675,9 @@ no repetir contexto entre sesiones.
 ```sh
 crew memory add --project demo --kind convention \
   --title "Usar pnpm" --body "El proyecto usa pnpm, nunca npm install." --source user
+crew memory search "pnpm" --project demo
 crew memory list --project demo
+crew memory sync --project demo      # importa/exporta demo/.crew/memory.json
 crew memory rm mem_...
 ```
 

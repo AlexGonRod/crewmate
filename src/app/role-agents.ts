@@ -89,12 +89,19 @@ agente:
 
 \`\`\`sh
 crew --json memory add --project <ref> --kind convention --title "T" --body "..."
+crew --json memory search "<texto>" --project <ref>
 crew --json memory list --project <ref>
+crew --json memory sync --project <ref>     # importa/exporta <repo>/.crew/memory.json
 crew --json memory rm <id>
 \`\`\`
 
 Usa la memoria antes de inventar convenciones nuevas. Actualízala cuando una
 decisión cambie, no cuando acumules.
+
+Cuando la persona o el trabajo fijen una decisión o una convención que sobreviva
+a esta sesión (elección de herramienta, criterio de aceptación, trampa que
+apareció), propón grabarla en la memoria: muestra la nota y pregunta si la
+grabas. Nunca la escribas sin haberlo dicho; y nunca la escribas sola.
 
 ## Contratos de rol
 
