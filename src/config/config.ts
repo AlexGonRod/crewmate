@@ -293,6 +293,11 @@ export interface ProjectConfig {
     max_iterations?: number;
   };
   runner?: ProjectRunnerConfig;
+  hygiene?: {
+    enabled?: boolean;
+    extra_blocked_paths?: string[];
+    disable_default_patterns?: boolean;
+  };
 }
 
 export function projectConfigPath(rootPath: string): string {
@@ -336,6 +341,47 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
           'PROJECT_CONFIG_INVALID',
           `verify_timeout_seconds must be a positive number in ${configPath}`,
         );
+      }
+    }
+    if (parsed.hygiene !== undefined) {
+      if (!parsed.hygiene || typeof parsed.hygiene !== 'object' || Array.isArray(parsed.hygiene)) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `hygiene must be an object in ${configPath}`,
+        );
+      }
+      if (
+        parsed.hygiene.enabled !== undefined &&
+        typeof parsed.hygiene.enabled !== 'boolean'
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `hygiene.enabled must be a boolean in ${configPath}`,
+        );
+      }
+      if (
+        parsed.hygiene.disable_default_patterns !== undefined &&
+        typeof parsed.hygiene.disable_default_patterns !== 'boolean'
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `hygiene.disable_default_patterns must be a boolean in ${configPath}`,
+        );
+      }
+      if (parsed.hygiene.extra_blocked_paths !== undefined) {
+        if (
+          !Array.isArray(parsed.hygiene.extra_blocked_paths) ||
+          !parsed.hygiene.extra_blocked_paths.every(
+            (blocked) => typeof blocked === 'string' && blocked.trim().length > 0,
+          )
+        ) {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `hygiene.extra_blocked_paths must be a list of non-empty patterns in ${configPath}`,
+          );
+        }
+        parsed.hygiene.extra_blocked_paths =
+          parsed.hygiene.extra_blocked_paths.map((blocked) => blocked.trim());
       }
     }
     if (parsed.ci !== undefined) {

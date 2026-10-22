@@ -425,6 +425,13 @@ Alguien empujó commits nuevos a la rama después de la revisión aprobada, y el
 motor no los firma. Haz un ciclo nuevo de revisión (o `crew task review <id>`)
 o, si los revisaste tú, `crew task merge <id> --force`.
 
+**"commit hygiene gate blocked the delivery".** El cambio lleva ficheros
+prohibidos (`.env`, claves, `__pycache__/`, artefactos generados) o un secreto
+en las líneas nuevas. Quita esos ficheros del cambio; si tu proyecto tiene
+rutas legítimas que caen en la lista, añade las tuyas a
+`hygiene.extra_blocked_paths` o desactiva patrones con
+`hygiene.disable_default_patterns: true` en `.crew/config.yaml`.
+
 **"CI is configured but no check has reported".** El CI todavía no ha
 reportado. Espera a que reporte: ese veto no se salta con `yolo`.
 

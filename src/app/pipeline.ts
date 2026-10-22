@@ -35,6 +35,11 @@ import {
   DEFAULT_VERIFY_TIMEOUT_SECONDS,
   runVerificationCommands,
 } from '../verify/verify';
+import {
+  abortHygieneScan,
+  hygieneFeedback,
+  scanCommitHygiene,
+} from '../verify/hygiene';
 import { runStage } from './run-stage';
 
 export type PipelineOutcome =
@@ -435,6 +440,33 @@ async function runPipelineLocked(
 
     if (options.signal?.aborted) {
       throw new CrewError('TASK_ABORTED', 'Task aborted before delivery');
+    }
+
+    const hygiene = projectConfig?.hygiene;
+    if (hygiene?.enabled !== false) {
+      const findings = scanCommitHygiene({
+        cwd: workspace.worktreePath,
+        extraBlockedPaths: hygiene?.extra_blocked_paths,
+        disableDefaultPatterns: hygiene?.disable_default_patterns,
+      });
+      if (findings.length > 0) {
+        abortHygieneScan(workspace.worktreePath);
+        task = store.rejectReview(task.id, hygieneFeedback(findings), maxIterations);
+        return {
+          task,
+          outcome: outcomeFor(task),
+          stage: task.stage,
+          runs: store.listRuns(task.id),
+          report: tester.report,
+          developerReport,
+          testerReport,
+          verifications,
+          ci: null,
+          merge: null,
+          commitSha: task.commitSha,
+          prUrl: task.prUrl,
+        };
+      }
     }
 
     const commit = commitWorkspace(workspace, `crew: ${task.title}`);

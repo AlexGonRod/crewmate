@@ -297,6 +297,26 @@ switch (scenario) {
     });
     break;
   }
+  case 'success_with_secrets': {
+    writeMarker('fake agent success\n');
+    writeFileSync(
+      path.join(worktree, '.env'),
+      'DEBUG=true\nSECRET_KEY=do-not-commit-me\n',
+    );
+    writeReport('done', 'Fake agent completed the task with a dirty file', {
+      tests: [{ command: 'fake-test', status: 'passed' }],
+    });
+    break;
+  }
+  case 'success_with_pycache': {
+    writeMarker('fake agent success\n');
+    mkdirSync(path.join(worktree, '__pycache__'), { recursive: true });
+    writeFileSync(path.join(worktree, '__pycache__', 'app.cpython-313.pyc'), 'junk\n');
+    writeReport('done', 'Fake agent completed the task with a cache dir', {
+      tests: [{ command: 'fake-test', status: 'passed' }],
+    });
+    break;
+  }
   case 'spec_success': {
     writeMarker('fake agent spec success\n');
     writeReportV2('done', 'Fake agent satisfied the spec', {

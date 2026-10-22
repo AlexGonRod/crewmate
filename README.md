@@ -265,7 +265,22 @@ resolverlo manualmente. Decisión registrada en el
    aceptación. Guarda exit code, duración, salida y log de cada comando.
 3. **Tester**: agente independiente, solo lectura, revisa el diff y la evidencia
    de verificación, y emite un reporte `crew.report/v3` con `approve` o `reject`.
-4. **Git**: si la verificación y el tester aprueban, se hace commit.
+4. **Git**: si la verificación y el tester aprueban, se hace commit. Antes de
+   commitear, el**gate de higiene** escanea lo que el commit incluiría:
+   rutas prohibidas (`.env`, claves, `__pycache__/`, artefactos generados) y
+   formas de secreto en las líneas añadidas (no imprime el secreto). Con
+   hallazgos, la tarea se rechaza con feedback y sin commit.
+
+   ```yaml
+   # .crew/config.yaml
+   hygiene:
+     enabled: true                # desactivarlo es explícito
+     extra_blocked_paths:         # globs adicionales del proyecto
+       - "internal/**"
+     disable_default_patterns: false
+   ```
+
+   Ver ADR 0038.
 5. **Delivery**:
    - `local`: la rama queda lista para revisión local.
    - `pr`: se hace push y se abre un PR en GitHub con `gh`. Si el proyecto

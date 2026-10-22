@@ -65,6 +65,9 @@ Después de la Fase 4, cuatro piezas más:
 - El recibo del candidato revisado: `task merge` exige que el head del
   PR/rama siga siendo el commit revisado; `--force` es el bypass humano
   (ADR 0037).
+- El gate de higiene de commit: rutas prohibidas y secretos bloquean el
+  commit antes de la entrega; fail-closed y configurable por proyecto
+  (ADR 0038).
 
 ## Fase 0 — Núcleo durable
 
@@ -446,3 +449,4 @@ concurrencia.
 - ADR 0035: la petición entra por el capitán y viaja literal hasta el worker.
 - ADR 0036: el motor escribe el seguimiento y el capitán responde preguntas.
 - ADR 0037: el recibo del candidato revisado (el merge exige el head vigente).
+- ADR 0038: el gate de higiene de commit (rutas prohibidas y secretos, fail-closed).

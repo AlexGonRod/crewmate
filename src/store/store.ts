@@ -1821,6 +1821,11 @@ export class Store {
 
       if (iteration > maxIterations) {
         this.setTaskStage(task.id, 'review');
+        this.markFailure(
+          task.id,
+          `Review rejected ${iteration} times (max ${maxIterations}): ${body}`,
+          false,
+        );
         return this.setTaskState(task, 'failed', 'task.failed', {
           reason: `Review rejected ${iteration} times (max ${maxIterations}): ${body}`,
           review_iterations: iteration,
