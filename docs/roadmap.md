@@ -54,8 +54,13 @@ requieren autoridad humana.
 | 3. Capitán conversacional | Completada | Chat, intake, planificación, supervisión y merge |
 | 4. Runtime visible y escala | Completada | Sesiones visibles, remotos, memoria y scout |
 
-Después de la Fase 4: el modelo de gates como autoridad (ADR 0032) y la capa
-de skills (ADR 0033).
+Después de la Fase 4, cuatro piezas más:
+
+- El modelo de gates como autoridad (ADR 0032).
+- La capa de skills (ADR 0033).
+- Los contratos de rol, uno por rol y ajustables por proyecto (ADR 0034).
+- La petición entra por el capitán: `crew ask` / `crew chat`, la petición
+  literal guardada en la tarea y `task create` cerrado sin ella (ADR 0035).
 
 ## Fase 0 — Núcleo durable
 
@@ -434,3 +439,4 @@ concurrencia.
 - ADR 0032: los gates son una cuestión de autoridad (ruta, yolo, veto humano).
 - ADR 0033: los skills como capa de procedimientos del crew.
 - ADR 0034: un contrato de rol por rol, con la forma de un `AGENTS.md`.
+- ADR 0035: la petición entra por el capitán y viaja literal hasta el worker.

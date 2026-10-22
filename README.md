@@ -133,7 +133,9 @@ crew task clean tsk_... --force
 | `crew project clone <url> [--dir <path>] [--name <name>]` | Clona un repositorio de GitHub, detecta su toolchain y lo registra |
 | `crew project list` | Lista proyectos |
 | `crew harness list` | Lista harnesses, disponibilidad y capacidades |
-| `crew task create --project <ref> --title <t> (--brief <texto> \| --brief-file <path> \| --spec-file <path>) [--methodology free\|spec\|tdd] [--acceptance <texto>] [--non-goal <texto>] [--delivery local\|pr]` | Crea una tarea en `draft` |
+| `crew ask "<petición>" [--project <ref>] [--harness <id>] [--timeout <s>]` | Lanza al capitán con la petición literal y devuelve su respuesta |
+| `crew chat [--project <ref>] [--harness <id>] [--timeout <s>]` | Conversación multi-turno con el capitán (`/exit` para salir) |
+| `crew task create --project <ref> --title <t> (--request <texto> \| --request-file <path>) (--brief <texto> \| --brief-file <path> \| --spec-file <path>) [--methodology free\|spec\|tdd] [--acceptance <texto>] [--non-goal <texto>] [--delivery local\|pr] [--no-request]` | Crea una tarea en `draft` con la petición de la persona |
 | `crew task list [--state <state>]` | Lista tareas |
 | `crew task show <id>` | Detalle, runs, reporte, mensajes, artefactos, eventos y resumen de riesgo/CI |
 | `crew task run <id> [--harness <id>] [--tester-harness <id>] [--agent <n>] [--model <n>] [--tester-agent <n>] [--tester-model <n>] [--max-iterations <n>] [--delivery local\|pr] [--timeout <s>] [--env K=V] [--quiet]` | Ejecuta el pipeline en un worktree |
@@ -160,6 +162,7 @@ crew task clean tsk_... --force
 | `crew plan apply <file> [--project <ref>] [--queue] [--delivery <modo>]` | Crea las tareas del plan, registra sus dependencias y opcionalmente las encola |
 | `crew captain brief [--project <ref>] [--limit <n>]` | Briefing para el capitán: proyectos, estado, riesgo y lo que requiere decisión humana |
 | `crew captain init [--force]` | Escribe las instrucciones `AGENTS.md` del capitán en el repositorio |
+| `crew role list` / `crew role show <rol>` / `crew role init <rol>` | Contratos de rol (developer, tester, scout, captain) y de dónde salen |
 | `crew daemon reconcile [--stale-after <s>] [--requeue] [--max-attempts <n>] [--backoff <s>]` | Marca runs muertos como perdidos y falla o reencola sus tareas |
 | `crew report --task <id> --run <id> [--file <path\|->] [--status <s>] [--summary <t>]` | Registra un reporte |
 | `crew events [--task <id>] [--follow] [--limit <n>]` | Muestra el event log |
@@ -783,17 +786,29 @@ Ver ADR 0016.
 
 ## Capa capitán
 
-El capitán es una sesión de `opencode` (o equivalente) que habla con la persona
-y dirige el trabajo mediante la CLI de `crew`. El núcleo no cambia: el capitán
-solo compone comandos y valida su salida.
+El capitán es el agente principal: habla con la persona y dirige el trabajo
+mediante la CLI de `crew`. El núcleo no cambia: el capitán solo compone comandos
+y valida su salida.
 
 ```sh
+# Un turno: crew compone el prompt y lanza al capitán
+pnpm crew ask "añade un endpoint de salud, con tests"
+
+# Multi-turno; /exit para salir
+pnpm crew chat
+
 # Instalar las instrucciones del capitán en el repositorio
 pnpm crew captain init
 
 # Contexto compacto antes de decidir
 pnpm crew --json captain brief
 ```
+
+La petición de la persona viaja literal: `crew ask` la pone en el prompt, el
+capitán la pasa con `--request` al crear la tarea y el worker la recibe en
+`## Request (as the person asked it)`. `task create` sin `--request` falla con
+`REQUEST_REQUIRED` (solo `--no-request`, para herramientas, se salta la puerta).
+Ver ADRs 0034 y 0035.
 
 `captain init` escribe un `AGENTS.md` con las reglas: todo cambio pasa por
 `crew task create`/`run`, nunca se editan los worktrees, se consulta el estado

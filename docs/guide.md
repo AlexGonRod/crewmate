@@ -91,11 +91,17 @@ acepta lo que no se ha comprobado).
 ```sh
 crew task create --project mi-proyecto \
   --title "Añadir GET /health" \
+  --request "añade un endpoint de salud que devuelva 200 y el estado" \
   --brief "Devuelve 200 y un JSON con el estado" \
   --methodology spec
 
 crew task run tsk_... --harness auto
 ```
+
+`--request` son las palabras de la persona, sin retocar: el brief del worker las
+lleva literales, antes del objetivo. Sin `--request` la CLI rechaza la tarea
+(`REQUEST_REQUIRED`); `--no-request` solo es para herramientas que no hablan con
+nadie. Lo normal es que la tarea la cree el capitán (`crew ask`).
 
 Con el harness `opencode`, el brief (que empieza por `---` de YAML) llega al
 agente por la entrada estándar, no como argumento: el agente lo lee y deja el
@@ -210,15 +216,30 @@ puedes entrar. Con **tmux**, es una sesión `crew-<taskId>-<rol>` y se abre con
 
 ## 6. El capitán (hablar con el crew)
 
-El capitán es una sesión de `opencode` con instrucciones del proyecto:
+El capitán es el agente principal. `crew` lo lanza con un prompt que ya trae su
+contrato, el contexto del proyecto y la petición tal cual la escribiste:
+
+```sh
+crew ask "añade un endpoint de salud, con tests"   # un turno
+crew chat                                          # conversación multi-turno
+```
+
+`crew ask` te devuelve la respuesta del capitán (suele crear y encolar la
+tarea). `crew chat` mantiene el hilo: con `opencode` continúa la sesión; con
+cualquier otro harness el historial se recompone en cada turno. `/exit` para
+salir.
+
+El capitán usa la CLI determinista, no edita código y no mergea sin tu firma.
+Si quieres que la conversación viva dentro de tu editor, también puedes
+instalar sus instrucciones en el repo:
 
 ```sh
 crew captain init          # escribe AGENTS.md en el repo
 crew captain brief         # contexto compacto para decidir
 ```
 
-En `opencode`, abre el repo y habla con el capitán: "añade un endpoint de
-salud, con tests". El capitán usa la CLI determinista, no edita código.
+Su contrato se puede ajustar por proyecto editando ese `AGENTS.md`
+(`crew role show captain` te dice de dónde sale).
 
 ---
 
@@ -365,8 +386,9 @@ Solo lectura: resumen, tareas, gates, riesgo, CI. Bind a `127.0.0.1`.
 
 | Quiero… | Comando |
 | --- | --- |
+| Hablar con el capitán | `crew ask "<petición>"` / `crew chat` |
 | Ver el estado | `crew status` |
-| Ver una tarea | `crew task show <id>` |
+| Ver una tarea (y su petición) | `crew task show <id>` |
 | Ver el progreso en lenguaje claro | `crew progress <id>` |
 | Ejecutar una tarea | `crew task run <id> --harness auto` |
 | Revisarla en el editor | `crew task review <id>` |
