@@ -227,6 +227,44 @@ function readBrief(options: { brief?: string; briefFile?: string }): string {
   throw new CrewError('INVALID_BRIEF', 'One of --brief or --brief-file is required');
 }
 
+function readRequest(options: {
+  request?: string | boolean;
+  requestFile?: string;
+}): string | null {
+  if (options.request === false) {
+    if (options.requestFile) {
+      throw new CrewError(
+        'INVALID_REQUEST',
+        'Use either --request/--request-file or --no-request, not both',
+      );
+    }
+    return null;
+  }
+  if (typeof options.request === 'string' && options.requestFile) {
+    throw new CrewError('INVALID_REQUEST', 'Use either --request or --request-file, not both');
+  }
+  let text: string | null = null;
+  if (options.requestFile) {
+    text =
+      options.requestFile === '-'
+        ? readFileSync(0, 'utf8')
+        : readFileSync(path.resolve(options.requestFile), 'utf8');
+  } else if (typeof options.request === 'string') {
+    text = options.request;
+  }
+  if (text === null) {
+    throw new CrewError(
+      'REQUEST_REQUIRED',
+      'Tasks are created from a request as the person asked it: pass --request "<their words>", --request-file <path>, or --no-request to bypass the captain',
+    );
+  }
+  const trimmed = text.trim();
+  if (!trimmed) {
+    throw new CrewError('INVALID_REQUEST', 'The request must not be empty');
+  }
+  return trimmed;
+}
+
 function parseDeliveryMode(value: string): DeliveryMode {
   if (value === 'local' || value === 'pr' || value === 'auto_merge' || value === 'scout') {
     return value;
@@ -241,6 +279,7 @@ function renderTaskDetail(
   const { task, project } = detail;
   console.log(`${pc.bold('Task')} ${task.id} [${stateLabel(task.state)}]`);
   console.log(`Title:     ${task.title}`);
+  console.log(`Origin:    ${task.origin}${task.requestText ? ' (request recorded)' : ''}`);
   console.log(`Project:   ${project ? `${project.name} (${project.id})` : task.projectId}`);
   console.log(`Base:      ${task.baseBranch}`);
   console.log(`Branch:    ${task.branch ?? '-'}`);
@@ -267,6 +306,9 @@ function renderTaskDetail(
     console.log(
       `Tester:    ${summary.tester.verdict ?? summary.tester.status} - ${summary.tester.findings} finding(s), ${summary.tester.blocking} blocking`,
     );
+  }
+  if (task.requestText) {
+    console.log(`Request:   ${task.requestText}`);
   }
   if (summary.scout) {
     console.log(`Scout:     ${summary.scout.summary}`);
@@ -529,6 +571,9 @@ function buildProgram(): Command {
     .option('--acceptance <text>', 'acceptance criterion (repeatable)', collect, [])
     .option('--non-goal <text>', 'non-goal (repeatable)', collect, [])
     .option('--delivery <mode>', 'local, pr, auto_merge, or scout')
+    .option('--request <text>', 'the request exactly as the person asked it')
+    .option('--request-file <path>', 'read the request from a file, or - for stdin')
+    .option('--no-request', 'create the task without a person request (only for tooling)')
     .action(
       async (options: {
         project: string;
@@ -540,6 +585,8 @@ function buildProgram(): Command {
         acceptance: string[];
         nonGoal: string[];
         delivery?: string;
+        request?: string | boolean;
+        requestFile?: string;
       }) => {
         const created = await withStore((store, context) => {
           const selected = store.getProject(options.project);
@@ -569,6 +616,7 @@ function buildProgram(): Command {
           }
           const briefText =
             options.brief || options.briefFile ? readBrief(options) : '';
+          const requestText = readRequest(options);
 
           let spec: TaskSpec | null = null;
           if (options.specFile) {
@@ -604,6 +652,8 @@ function buildProgram(): Command {
             deliveryMode,
             methodology,
             spec,
+            requestText,
+            origin: requestText === null ? 'cli' : 'person',
           });
         });
         if (globalOptions().json) {
@@ -1686,6 +1736,8 @@ function buildProgram(): Command {
             projectId: project.id,
             title: options.title,
             briefText: options.question,
+            requestText: options.question,
+            origin: 'person',
             methodology: 'free',
             spec: null,
             deliveryMode: 'scout',

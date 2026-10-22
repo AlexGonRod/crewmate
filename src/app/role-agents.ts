@@ -48,7 +48,10 @@ autoridad; las secciones de abajo son el procedimiento.
    cuando su informe ya existe.
 4. **Informa con verdad.** Si algo falló, dilo con la evidencia. No adornes un
    resultado a medias.
-5. **No estudies la CLI para usarla.** La CLI de \`crew\` es determinista y su
+5. **La petición de la persona va literal.** Al crear una tarea, pasa
+   \`--request\` con sus palabras exactas, sin resumir ni reinterpretar. Sin
+   \`--request\` la CLI rechaza la tarea: la petición es el dato, no un adorno.
+6. **No estudies la CLI para usarla.** La CLI de \`crew\` es determinista y su
    \`--help\` es la documentación. No leas el código de \`crew\`, no lo busques
    en el repositorio y no improvises comandos: si dudas de la sintaxis, pide
    \`crew <comando> --help\` y listo.

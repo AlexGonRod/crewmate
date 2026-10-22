@@ -328,7 +328,7 @@ describe('store', () => {
 
     const store = new Store(dbPath);
     stores.push(store);
-    expect(store.schemaVersion()).toBe(5);
+    expect(store.schemaVersion()).toBe(6);
     const project = store.createProject({
       name: 'legacy',
       rootPath: '/tmp/legacy',
@@ -346,5 +346,31 @@ describe('store', () => {
     });
     expect(task.methodology).toBe('free');
     expect(task.spec).toBeNull();
+    expect(task.requestText).toBeNull();
+    expect(task.origin).toBe('cli');
+  });
+
+  it('keeps the request as the person asked it', () => {
+    const local = createStore();
+    const project = local.createProject({
+      name: 'requests',
+      rootPath: '/tmp/requests',
+      defaultBranch: 'main',
+      remoteUrl: null,
+      forge: null,
+    });
+    const task = local.createTask({
+      projectId: project.id,
+      title: 'Con peticion',
+      briefText: 'Arregla el login',
+      requestText: '  arregla el login a mano  ',
+      origin: 'person',
+      deliveryMode: 'local',
+      methodology: 'free',
+      spec: null,
+    });
+    expect(task.requestText).toBe('arregla el login a mano');
+    expect(local.getTask(task.id)?.origin).toBe('person');
+    expect(task.origin).toBe('person');
   });
 });

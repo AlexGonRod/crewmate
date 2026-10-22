@@ -152,6 +152,7 @@ del proyecto: los workers escriben en worktrees aislados.
 \`\`\`sh
 ${input.crewCommand} --json task create --project ${input.project.name} \\
   --title "<título corto>" \\
+  --request "<las palabras de la persona, sin tocar>" \\
   --brief "<tu brief: qué hay que hacer y con qué criterio se da por hecho>" \\
   --methodology spec \\
   --acceptance "<criterio de aceptación>" \\
@@ -161,6 +162,10 @@ ${input.crewCommand} --json status                     # estado global
 ${input.crewCommand} --json captain brief              # contexto actualizado
 ${input.crewCommand} <comando> --help                  # sintaxis de un comando
 \`\`\`
+
+\`--request\` es obligatorio: la CLI rechaza una tarea sin la petición de la
+persona (\`REQUEST_REQUIRED\`), y si la inventas o la resúmenes el que pierde
+es el que la pidió. \`--no-request\` existe solo para herramientas, no lo uses.
 
 No leas el código de \`crew\` para usar la CLI: \`--help\` es la documentación.
 Cuando crees la tarea, no esperes a que termine el trabajo: crea, encola y

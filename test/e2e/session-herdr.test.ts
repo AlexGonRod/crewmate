@@ -186,6 +186,7 @@ describe('sessions in herdr', () => {
       '--json',
       'task',
       'create',
+      '--no-request',
       '--project',
       'demo',
       '--title',

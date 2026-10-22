@@ -193,6 +193,7 @@ export function applyPlan(
       projectId: options.projectId,
       title: spec.title,
       briefText: spec.brief,
+      origin: 'plan',
       methodology: spec.methodology,
       spec:
         spec.methodology === 'free'

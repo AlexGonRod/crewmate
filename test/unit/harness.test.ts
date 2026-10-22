@@ -26,6 +26,8 @@ function makeTask(): Task {
     projectId: 'prj_test',
     title: 'Add health endpoint',
     slug: 'add-health-endpoint',
+    requestText: null,
+    origin: 'cli',
     briefText: 'Do it',
     methodology: 'free',
     spec: null,

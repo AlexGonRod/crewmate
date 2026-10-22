@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   title TEXT NOT NULL,
   slug TEXT NOT NULL,
   brief_text TEXT NOT NULL,
+  request_text TEXT,
+  origin TEXT NOT NULL DEFAULT 'cli',
   methodology TEXT NOT NULL DEFAULT 'free',
   spec_json TEXT,
   stage TEXT NOT NULL DEFAULT 'develop',

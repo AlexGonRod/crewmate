@@ -56,6 +56,7 @@ describe('reviewing a task in the editor', () => {
       '--json',
       'task',
       'create',
+      '--no-request',
       '--project',
       'demo',
       '--title',

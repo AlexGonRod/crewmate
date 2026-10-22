@@ -182,11 +182,17 @@ export interface Project {
   createdAt: string;
 }
 
+export type TaskOrigin = 'person' | 'cli' | 'plan';
+
 export interface Task {
   id: string;
   projectId: string;
   title: string;
   slug: string;
+  /** The request exactly as the person asked it, before anyone edited it. */
+  requestText: string | null;
+  /** Who asked for this task. */
+  origin: TaskOrigin;
   briefText: string;
   methodology: Methodology;
   spec: TaskSpec | null;

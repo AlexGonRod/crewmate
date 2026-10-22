@@ -45,6 +45,8 @@ function makeTask(
     projectId: project.id,
     title: 'Task',
     slug: 'task',
+    requestText: null,
+    origin: 'cli',
     briefText: 'Do the thing',
     methodology,
     spec,
@@ -180,5 +182,24 @@ describe('brief generation', () => {
     expect(brief).toContain('**Green**');
     expect(brief).toContain('phase');
     expect(brief).toContain('crew.report/v2');
+  });
+});
+
+describe('the request as the person asked it', () => {
+  it('goes into the brief verbatim, before the goal', () => {
+    const task = {
+      ...makeTask('free', null),
+      requestText: 'arregla el login\ncon estos pasos',
+      origin: 'person' as const,
+    };
+    const brief = makeBrief(task);
+    expect(brief).toContain('## Request (as the person asked it)');
+    expect(brief).toContain('arregla el login\ncon estos pasos');
+    expect(brief.indexOf('## Request')).toBeLessThan(brief.indexOf('## Goal'));
+  });
+
+  it('is absent when nobody recorded a request', () => {
+    const brief = makeBrief(makeTask('free', null));
+    expect(brief).not.toContain('## Request (as the person asked it)');
   });
 });

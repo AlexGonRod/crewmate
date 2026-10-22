@@ -419,9 +419,19 @@ export function generateBrief(input: BriefInput): string {
         : `- Every acceptance criterion is covered in \`acceptance\` with status \`passed\`.
 `;
 
+  const requestSection = task.requestText
+    ? `## Request (as the person asked it)
+
+Verbatim, before anyone edited it:
+
+${task.requestText}
+
+`
+    : '';
+
   return `${frontmatter}# Task: ${task.title}
 
-## Goal
+${requestSection}## Goal
 
 ${goal}
 

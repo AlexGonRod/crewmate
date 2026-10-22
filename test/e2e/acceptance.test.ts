@@ -182,6 +182,7 @@ describe('fase 3 acceptance demo', () => {
       '--json',
       'task',
       'create',
+      '--no-request',
       '--project',
       'demo',
       '--title',

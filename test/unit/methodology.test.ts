@@ -14,6 +14,8 @@ function makeTask(methodology: Methodology, spec: TaskSpec | null = null): Task 
     projectId: newId('prj'),
     title: 'Task',
     slug: 'task',
+    requestText: null,
+    origin: 'cli',
     briefText: 'Do it',
     methodology,
     spec,

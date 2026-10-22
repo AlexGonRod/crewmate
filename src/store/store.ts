@@ -35,6 +35,7 @@ import type {
   RunState,
   Task,
   TaskDetail,
+  TaskOrigin,
   TaskSpec,
   TaskState,
   VerificationResult,
@@ -59,6 +60,8 @@ interface TaskRow {
   title: string;
   slug: string;
   brief_text: string;
+  request_text: string | null;
+  origin: TaskOrigin;
   methodology: Methodology;
   spec_json: string | null;
   stage: PipelineStage;
@@ -199,6 +202,8 @@ function toTask(row: TaskRow): Task {
     projectId: row.project_id,
     title: row.title,
     slug: row.slug,
+    requestText: row.request_text ?? null,
+    origin: (row.origin ?? 'cli') as TaskOrigin,
     briefText: row.brief_text,
     methodology: row.methodology ?? 'free',
     spec: row.spec_json ? (JSON.parse(row.spec_json) as TaskSpec) : null,
@@ -370,6 +375,9 @@ export interface CreateTaskInput {
   deliveryMode: DeliveryMode;
   methodology: Methodology;
   spec: TaskSpec | null;
+  /** The request exactly as the person asked it. */
+  requestText?: string | null;
+  origin?: TaskOrigin;
 }
 
 export interface StartRunInput {
@@ -507,6 +515,12 @@ export class Store {
     if (!names.has('retryable')) {
       this.db.exec('ALTER TABLE tasks ADD COLUMN retryable INTEGER NOT NULL DEFAULT 0');
     }
+    if (!names.has('request_text')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN request_text TEXT');
+    }
+    if (!names.has('origin')) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN origin TEXT NOT NULL DEFAULT 'cli'");
+    }
 
     const runColumns = this.db.prepare('PRAGMA table_info(runs)').all() as unknown as Array<{
       name: string;
@@ -535,6 +549,7 @@ export class Store {
     insert.run(3, nowIso());
     insert.run(4, nowIso());
     insert.run(5, nowIso());
+    insert.run(6, nowIso());
   }
 
   private transaction<T>(fn: () => T): T {
@@ -718,6 +733,8 @@ export class Store {
         projectId: project.id,
         title,
         slug: slugify(title),
+        requestText: input.requestText?.trim() || null,
+        origin: input.origin ?? 'cli',
         briefText,
         methodology: input.methodology,
         spec: input.spec,
@@ -745,8 +762,8 @@ export class Store {
       this.db
         .prepare(
           `INSERT INTO tasks
-            (id, project_id, title, slug, brief_text, methodology, spec_json, stage, review_iterations, commit_sha, pr_url, state, delivery_mode, base_branch, branch, worktree_path, harness_id, priority, last_seq, created_at, updated_at, finished_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (id, project_id, title, slug, brief_text, request_text, origin, methodology, spec_json, stage, review_iterations, commit_sha, pr_url, state, delivery_mode, base_branch, branch, worktree_path, harness_id, priority, last_seq, created_at, updated_at, finished_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           task.id,
@@ -754,6 +771,8 @@ export class Store {
           task.title,
           task.slug,
           task.briefText,
+          task.requestText,
+          task.origin,
           task.methodology,
           task.spec ? JSON.stringify(task.spec) : null,
           task.stage,
@@ -783,6 +802,8 @@ export class Store {
           project_id: task.projectId,
           delivery_mode: task.deliveryMode,
           methodology: task.methodology,
+          origin: task.origin,
+          request: task.requestText,
         },
       });
 
