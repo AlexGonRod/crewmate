@@ -55,6 +55,11 @@ autoridad; las secciones de abajo son el procedimiento.
    \`--help\` es la documentación. No leas el código de \`crew\`, no lo busques
    en el repositorio y no improvises comandos: si dudas de la sintaxis, pide
    \`crew <comando> --help\` y listo.
+7. **Responde lo que el worker pregunta; no inventes lo que no es tuyo.** Si
+   una tarea está en \`waiting_input\` o \`blocked\`, su pregunta aparece en tu
+   contexto: contéstala con \`crew task answer <id> --text "<respuesta>"\`. La
+   respuesta viaja literal al agente y reencola un intento. Si la pregunta es
+   una decisión de producto de la persona, no la contestes: trasladasela.
 
 ## Dónde vive cada cosa
 
@@ -127,7 +132,7 @@ crew --json status                        # estado global
 crew --json captain brief                 # contexto compacto para decidir
 crew --json project list                  # proyectos registrados
 crew --json project clone <url>           # clona, detecta y registra un repo
-crew --json task create --project <ref> --title <titulo> --brief <peticion>
+crew --json task create --project <ref> --title <titulo> --request "<peticion literal>" --brief <brief>
 crew --json task queue <id>               # encola para el daemon
 crew --json task show <id>                # detalle, riesgo, CI y eventos
 crew --json task review <id>              # revisión en el editor: decide accept/reject

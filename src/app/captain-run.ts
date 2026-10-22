@@ -25,7 +25,10 @@ export interface CaptainTurnInput {
   store: Store;
   context: ResolvedContext;
   project: Project;
-  request: string;
+  /** The request of the person; omitted in a follow-up turn. */
+  request?: string;
+  /** A follow-up written by the engine instead of the person. */
+  continuation?: string;
   harnessId?: string;
   timeoutSeconds?: number;
   sessionId?: string | null;
@@ -126,6 +129,7 @@ export async function runCaptainTurn(
     project: input.project,
     brief,
     request: input.request,
+    continuation: input.continuation,
     memory: input.store.listMemories(input.project.id),
     skills: discoverSkills({ projectRoot: input.project.rootPath }),
     crewCommand,
@@ -137,8 +141,11 @@ export async function runCaptainTurn(
   const sessionKey = input.sessionId ?? `turn-${newId('cap').slice(-8)}`;
   const dir = captainDirectory(input.context, sessionKey);
   mkdirSync(dir, { recursive: true });
-  const promptPath = path.join(dir, 'prompt.md');
-  const logPath = path.join(dir, 'run.jsonl');
+  // Each turn keeps its own prompt and log: in a conversation with several
+  // turns, overwriting them would lose what the captain was told.
+  const turnKey = newId('turn').slice(-10);
+  const promptPath = path.join(dir, `prompt-${turnKey}.md`);
+  const logPath = path.join(dir, `run-${turnKey}.jsonl`);
   writeFileSync(promptPath, prompt, 'utf8');
 
   const launch = harness.buildChatLaunch({
@@ -151,7 +158,7 @@ export async function runCaptainTurn(
       CREW_ROLE: 'captain',
       CREW_PROJECT_ID: input.project.id,
       CREW_BIN: crewCommand,
-      CREW_CAPTAIN_REQUEST: input.request,
+      CREW_CAPTAIN_REQUEST: input.request ?? '',
     },
   });
 
@@ -167,7 +174,10 @@ export async function runCaptainTurn(
     actor: 'person',
     payload: {
       project: input.project.name,
-      request: redactText(input.request, process.env),
+      request: input.request ? redactText(input.request, process.env) : null,
+      continuation: input.continuation
+        ? redactText(input.continuation, process.env)
+        : null,
       session_id: input.sessionId ?? null,
     },
   });

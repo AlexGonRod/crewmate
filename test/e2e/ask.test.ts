@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,11 +20,16 @@ describe('the request enters through the captain', () => {
   let tempRoot: string;
   let repo: string;
   let env: Record<string, string>;
+  let crewBin: string;
 
-  function cli(args: string[], input?: string): CliResult {
+  function cli(
+    args: string[],
+    input?: string,
+    extraEnv: Record<string, string> = {},
+  ): CliResult {
     const result = spawnSync(TSX, [CLI, ...args], {
       cwd: repo,
-      env: { ...process.env, ...env, NO_COLOR: '1', FORCE_COLOR: '0' },
+      env: { ...process.env, ...env, ...extraEnv, NO_COLOR: '1', FORCE_COLOR: '0' },
       encoding: 'utf8',
       timeout: 60_000,
       input,
@@ -60,6 +65,12 @@ describe('the request enters through the captain', () => {
     execFileSync('git', ['commit', '-m', 'initial'], { cwd: repo });
     expect(cli(['init']).status).toBe(0);
     expect(cli(['--json', 'project', 'add', '.', '--name', 'demo']).status).toBe(0);
+
+    const binDir = path.join(tempRoot, 'bin');
+    mkdirSync(binDir, { recursive: true });
+    crewBin = path.join(binDir, 'crew');
+    writeFileSync(crewBin, `#!/bin/sh\nexec "${TSX}" "${CLI}" "$@"\n`);
+    chmodSync(crewBin, 0o755);
   });
 
   afterAll(() => {
@@ -99,6 +110,86 @@ describe('the request enters through the captain', () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain('primera peticion');
     expect(result.stdout).toContain('segunda peticion');
+  });
+
+  it('follows the work it created until review', () => {
+    const result = cli(
+      [
+        '--json',
+        'ask',
+        'cambia el saludo por hola',
+        '--project',
+        'demo',
+        '--harness',
+        'fake',
+        '--timeout',
+        '30',
+        '--follow',
+      ],
+      undefined,
+      {
+        CREW_BIN: crewBin,
+        CREW_FAKE_CAPTAIN_CREATE: '1',
+        CREW_FAKE_CAPTAIN_PROJECT: 'demo',
+        CREW_FAKE_SCENARIO: 'commit',
+      },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.answer).toContain('tsk_');
+    expect(result.json.daemon).toBe('ran');
+    expect(result.json.tasks).toHaveLength(1);
+    expect(result.json.tasks[0].state).toBe('review');
+    expect(result.json.followUp).toHaveLength(1);
+    expect(result.json.followUp[0].answer).toContain('Seguimiento');
+
+    const prompt = readFileSync(result.json.followUp[0].promptPath as string, 'utf8');
+    expect(prompt).toContain('## Seguimiento del motor');
+    expect(prompt).toContain(result.json.tasks[0].taskId);
+    expect(prompt).not.toContain('## Petición de la persona');
+  });
+
+  it('answers the question of a worker and follows the new attempt', () => {
+    const result = cli(
+      [
+        '--json',
+        'ask',
+        'cambia el saludo por hola',
+        '--project',
+        'demo',
+        '--harness',
+        'fake',
+        '--timeout',
+        '30',
+        '--follow',
+      ],
+      undefined,
+      {
+        CREW_BIN: crewBin,
+        CREW_FAKE_CAPTAIN_CREATE: '1',
+        CREW_FAKE_CAPTAIN_PROJECT: 'demo',
+        CREW_FAKE_CAPTAIN_ANSWER: '1',
+        CREW_FAKE_DEVELOPER_SCENARIO: 'needs_input_once',
+        CREW_FAKE_TESTER_SCENARIO: 'commit',
+      },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.tasks).toHaveLength(1);
+    expect(result.json.tasks[0].state).toBe('review');
+    expect(result.json.followUp).toHaveLength(2);
+    expect(result.json.followUp[0].answer.toLowerCase()).toContain('respondida');
+    expect(result.json.followUp[1].answer).toContain('Seguimiento');
+
+    const first = readFileSync(result.json.followUp[0].promptPath as string, 'utf8');
+    expect(first).toContain(result.json.tasks[0].taskId);
+    expect(first).toContain('Pregunta sin responder');
+
+    const shown = cli(['--json', 'task', 'show', result.json.tasks[0].taskId as string]);
+    expect(shown.status, shown.stderr).toBe(0);
+    const answers = (shown.json.messages as Array<Record<string, string>>).filter(
+      (message) => message.direction === 'in' && message.kind === 'answer',
+    );
+    expect(answers).toHaveLength(1);
+    expect(answers[0]?.body).toBe('usa el diseno existente');
   });
 
   it('refuses a task without the request of the person', () => {

@@ -60,7 +60,8 @@ Después de la Fase 4, cuatro piezas más:
 - La capa de skills (ADR 0033).
 - Los contratos de rol, uno por rol y ajustables por proyecto (ADR 0034).
 - La petición entra por el capitán: `crew ask` / `crew chat`, la petición
-  literal guardada en la tarea y `task create` cerrado sin ella (ADR 0035).
+  literal guardada en la tarea y `task create` cerrado sin ella (ADR 0035), con
+  seguimiento y respuestas a los workers (`--follow`, ADR 0036).
 
 ## Fase 0 — Núcleo durable
 
@@ -440,3 +441,4 @@ concurrencia.
 - ADR 0033: los skills como capa de procedimientos del crew.
 - ADR 0034: un contrato de rol por rol, con la forma de un `AGENTS.md`.
 - ADR 0035: la petición entra por el capitán y viaja literal hasta el worker.
+- ADR 0036: el motor escribe el seguimiento y el capitán responde preguntas.

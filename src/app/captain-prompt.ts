@@ -13,14 +13,17 @@ import type { DiscoveredSkill } from './skills';
  */
 
 export interface CaptainTurn {
-  role: 'person' | 'captain';
+  role: 'person' | 'captain' | 'engine';
   text: string;
 }
 
 export interface CaptainPromptInput {
   project: Project;
   brief: CaptainBrief;
-  request: string;
+  /** What the person asked for, in their own words. */
+  request?: string;
+  /** A follow-up written by the engine, not by the person. */
+  continuation?: string;
   memory: Memory[];
   skills: DiscoveredSkill[];
   crewCommand: string;
@@ -73,7 +76,12 @@ function renderAttention(brief: CaptainBrief): string {
     return '- Nada necesita atención.';
   }
   return brief.attention
-    .map((item) => `- ${item.taskId} [${item.state}] ${item.title} — ${item.reason}`)
+    .map((item) => {
+      const question = item.question
+        ? `\n  Pregunta sin responder: "${item.question}"`
+        : '';
+      return `- ${item.taskId} [${item.state}] ${item.title} — ${item.reason}${question}`;
+    })
     .join('\n');
 }
 
@@ -93,6 +101,23 @@ function renderSkills(skills: DiscoveredSkill[]): string {
     .join('\n');
 }
 
+function renderAsk(input: CaptainPromptInput): string {
+  if (input.continuation) {
+    return `## Seguimiento del motor
+
+${input.continuation}
+`;
+  }
+  const request = (input.request ?? '').replace(/\n/g, '\n> ');
+  return `## Petición de la persona
+
+La persona ha pedido lo siguiente. Son sus palabras literales: no las
+reinterpretes ni las resumas, y pásalas tal cual al crear la tarea.
+
+> ${request}
+`;
+}
+
 function renderHistory(history: CaptainTurn[] | undefined): string {
   if (!history || history.length === 0) {
     return '';
@@ -101,7 +126,9 @@ function renderHistory(history: CaptainTurn[] | undefined): string {
     .map((turn) =>
       turn.role === 'person'
         ? `**Persona**: ${turn.text}`
-        : `**Capitán**: ${turn.text}`,
+        : turn.role === 'captain'
+          ? `**Capitán**: ${turn.text}`
+          : `**Motor**: ${turn.text}`,
     )
     .join('\n\n');
   return `\n## Conversación hasta ahora\n\n${rendered}\n`;
@@ -136,13 +163,7 @@ ${renderMemory(input.memory)}
 ### Skills disponibles
 
 ${renderSkills(input.skills)}
-${renderHistory(input.history)}
-## Petición de la persona
-
-La persona ha pedido lo siguiente. Son sus palabras literales: no las
-reinterpretes ni las resumas, y pásalas tal cual al crear la tarea.
-
-> ${input.request.replace(/\n/g, '\n> ')}
+${renderHistory(input.history)}${renderAsk(input)}
 
 ## Cómo convertir la petición en trabajo
 
@@ -160,6 +181,7 @@ ${input.crewCommand} --json task create --project ${input.project.name} \\
 ${input.crewCommand} --json task queue <id>            # encola la tarea para el daemon
 ${input.crewCommand} --json status                     # estado global
 ${input.crewCommand} --json captain brief              # contexto actualizado
+${input.crewCommand} --json task answer <id> --text "<respuesta>"
 ${input.crewCommand} <comando> --help                  # sintaxis de un comando
 \`\`\`
 
@@ -168,8 +190,20 @@ persona (\`REQUEST_REQUIRED\`), y si la inventas o la resúmenes el que pierde
 es el que la pidió. \`--no-request\` existe solo para herramientas, no lo uses.
 
 No leas el código de \`crew\` para usar la CLI: \`--help\` es la documentación.
+
+Si una tarea está en \`waiting_input\` o \`blocked\`, su pregunta aparece en
+«Necesita atención»: respóndela con \`task answer <id> --text "<respuesta>"\`.
+La respuesta viaja literal al agente y reencola un intento. Si la pregunta es
+una decisión de producto que no es tuya, no la contestes: trasladasela a la
+persona.
+
+Si una tarea está en \`review\`, no la fusiones: dile a la persona que la firme
+con \`crew task merge <id>\` (o que la rechace). Si falló, explica el error y
+pregunta si quieres reintentarla.
+
 Cuando crees la tarea, no esperes a que termine el trabajo: crea, encola y
-explica qué has creado.
+explica qué has creado. Si la persona ha pedido seguimiento, el motor te dirá
+en qué estado quedó.
 
 Si la petición es ambigua, dile a la persona qué necesitas antes de crear
 nada. Si pide varios cambios, escribe un plan (\`crew plan apply\`) en vez de

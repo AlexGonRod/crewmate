@@ -63,10 +63,41 @@ describe('the captain prompt', () => {
       history: [
         { role: 'person', text: 'hola' },
         { role: 'captain', text: 'dime' },
+        { role: 'engine', text: 'la tarea está en review' },
       ],
     });
     expect(text).toContain('**Persona**: hola');
     expect(text).toContain('**Capitán**: dime');
+    expect(text).toContain('**Motor**: la tarea está en review');
+  });
+
+  it('shows the question a worker is waiting on', () => {
+    const text = prompt({
+      brief: {
+        ...brief,
+        attention: [
+          {
+            taskId: 'tsk_1',
+            title: 'login',
+            state: 'waiting_input',
+            reason: 'the agent is waiting for an answer',
+            question: '¿Uso el diseño existente?',
+          },
+        ],
+      },
+    });
+    expect(text).toContain('Pregunta sin responder: "¿Uso el diseño existente?"');
+    expect(text).toContain('task answer <id> --text');
+  });
+
+  it('replaces the request with a follow-up from the engine', () => {
+    const text = prompt({
+      request: undefined,
+      continuation: 'La tarea tsk_1 está en review.',
+    });
+    expect(text).toContain('## Seguimiento del motor');
+    expect(text).toContain('La tarea tsk_1 está en review.');
+    expect(text).not.toContain('## Petición de la persona');
   });
 });
 

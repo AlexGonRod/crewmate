@@ -221,13 +221,20 @@ contrato, el contexto del proyecto y la petición tal cual la escribiste:
 
 ```sh
 crew ask "añade un endpoint de salud, con tests"   # un turno
+crew ask "..." --follow                            # pide, ejecuta y cuéntame
 crew chat                                          # conversación multi-turno
 ```
 
 `crew ask` te devuelve la respuesta del capitán (suele crear y encolar la
-tarea). `crew chat` mantiene el hilo: con `opencode` continúa la sesión; con
-cualquier otro harness el historial se recompone en cada turno. `/exit` para
-salir.
+tarea). Con `--follow` el motor drena la cola y lanza un turno de seguimiento:
+el capitán te cuenta en qué quedó y responde las preguntas que dejen los
+workers (`--rounds`, por defecto 2). Si el daemon ya está corriendo, no compite
+con él y te lo dice.
+
+`crew chat` mantiene el hilo: con `opencode` continúa la sesión; con cualquier
+otro harness el historial se recompone en cada turno. `/exit` para salir. En
+cada turno el capitán ve las tareas que esperan respuesta y puede contestarlas
+con `crew task answer <id> --text "<respuesta>"`.
 
 El capitán usa la CLI determinista, no edita código y no mergea sin tu firma.
 Si quieres que la conversación viva dentro de tu editor, también puedes
@@ -386,7 +393,7 @@ Solo lectura: resumen, tareas, gates, riesgo, CI. Bind a `127.0.0.1`.
 
 | Quiero… | Comando |
 | --- | --- |
-| Hablar con el capitán | `crew ask "<petición>"` / `crew chat` |
+| Hablar con el capitán | `crew ask "<petición>" [--follow]` / `crew chat` |
 | Ver el estado | `crew status` |
 | Ver una tarea (y su petición) | `crew task show <id>` |
 | Ver el progreso en lenguaje claro | `crew progress <id>` |

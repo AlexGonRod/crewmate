@@ -61,6 +61,7 @@ import {
   removeWorkspace,
   resolveWorkspace,
 } from '../app/workspace';
+import { followCaptainWork } from '../app/captain-follow';
 import { answerTaskInEditor, reviewTask } from '../app/review-flow';
 import { taskDeliveryModeFor } from '../app/delivery';
 import { discoverSkills, findProjectRoot } from '../app/skills';
@@ -2327,14 +2328,25 @@ function buildProgram(): Command {
     .argument('<request>', 'what the person wants, in their own words')
     .option('--project <ref>', 'the project to work on (default: the current directory)')
     .option('--harness <id>', 'the harness of the captain: fake or opencode')
-    .option('--timeout <seconds>', 'timeout for the captain turn', Number)
+    .option('--timeout <seconds>', 'timeout for each captain turn', Number)
+    .option('--follow', 'run the work created in this turn and let the captain report it')
+    .option('--rounds <n>', 'how many follow-up rounds when following (default 2)', Number)
+    .option('--max-tasks <n>', 'how many tasks to drain per round', Number)
     .action(
       async (
         request: string,
-        options: { project?: string; harness?: string; timeout?: number },
+        options: {
+          project?: string;
+          harness?: string;
+          timeout?: number;
+          follow?: boolean;
+          rounds?: number;
+          maxTasks?: number;
+        },
       ) => {
         const result = await withStore(async (store, context) => {
           const project = await resolveCaptainProject(store, options.project);
+          const before = new Set(store.listTasks().map((task) => task.id));
           const turn = await runCaptainTurn({
             store,
             context,
@@ -2343,7 +2355,25 @@ function buildProgram(): Command {
             harnessId: options.harness,
             timeoutSeconds: options.timeout,
           });
-          return { project, turn };
+          if (!options.follow) {
+            return { project, turn, follow: null };
+          }
+          const follow = await followCaptainWork({
+            store,
+            context,
+            project,
+            before,
+            rounds: options.rounds,
+            maxTasks: options.maxTasks,
+            harnessId: options.harness,
+            timeoutSeconds: options.timeout,
+            history: [
+              { role: 'person', text: request },
+              { role: 'captain', text: turn.text },
+            ],
+            sessionId: turn.sessionId,
+          });
+          return { project, turn, follow };
         });
         if (globalOptions().json) {
           printJson({
@@ -2354,6 +2384,17 @@ function buildProgram(): Command {
             timedOut: result.turn.timedOut,
             promptPath: result.turn.promptPath,
             logPath: result.turn.logPath,
+            daemon: result.follow ? (result.follow.skipped ?? 'ran') : null,
+            tasks: result.follow?.tasks ?? null,
+            followUp:
+              result.follow?.turns.map((turn) => ({
+                sessionId: turn.sessionId,
+                answer: turn.text,
+                exitCode: turn.exitCode,
+                timedOut: turn.timedOut,
+                promptPath: turn.promptPath,
+                logPath: turn.logPath,
+              })) ?? null,
           });
           return;
         }
@@ -2362,6 +2403,19 @@ function buildProgram(): Command {
         }
         if (result.turn.timedOut) {
           console.error('The captain timed out.');
+        }
+        for (const turn of result.follow?.turns ?? []) {
+          if (turn.text) {
+            console.log(`\n${turn.text}`);
+          }
+          if (turn.timedOut) {
+            console.error('The captain timed out during the follow-up.');
+          }
+        }
+        if (result.follow?.skipped === 'lease') {
+          console.log(
+            '\nEl daemon ya está activo: no he ejecutado la cola; las tareas siguen su curso.',
+          );
         }
       },
     );

@@ -133,7 +133,7 @@ crew task clean tsk_... --force
 | `crew project clone <url> [--dir <path>] [--name <name>]` | Clona un repositorio de GitHub, detecta su toolchain y lo registra |
 | `crew project list` | Lista proyectos |
 | `crew harness list` | Lista harnesses, disponibilidad y capacidades |
-| `crew ask "<petición>" [--project <ref>] [--harness <id>] [--timeout <s>]` | Lanza al capitán con la petición literal y devuelve su respuesta |
+| `crew ask "<petición>" [--project <ref>] [--harness <id>] [--timeout <s>] [--follow] [--rounds <n>] [--max-tasks <n>]` | Lanza al capitán con la petición literal; con `--follow` ejecuta lo creado y le pasa el relevo para que cuente el resultado |
 | `crew chat [--project <ref>] [--harness <id>] [--timeout <s>]` | Conversación multi-turno con el capitán (`/exit` para salir) |
 | `crew task create --project <ref> --title <t> (--request <texto> \| --request-file <path>) (--brief <texto> \| --brief-file <path> \| --spec-file <path>) [--methodology free\|spec\|tdd] [--acceptance <texto>] [--non-goal <texto>] [--delivery local\|pr] [--no-request]` | Crea una tarea en `draft` con la petición de la persona |
 | `crew task list [--state <state>]` | Lista tareas |
@@ -794,6 +794,9 @@ y valida su salida.
 # Un turno: crew compone el prompt y lanza al capitán
 pnpm crew ask "añade un endpoint de salud, con tests"
 
+# Pide, ejecuta y deja que el capitán cuente en qué quedó
+pnpm crew ask "añade un endpoint de salud, con tests" --follow
+
 # Multi-turno; /exit para salir
 pnpm crew chat
 
@@ -808,7 +811,11 @@ La petición de la persona viaja literal: `crew ask` la pone en el prompt, el
 capitán la pasa con `--request` al crear la tarea y el worker la recibe en
 `## Request (as the person asked it)`. `task create` sin `--request` falla con
 `REQUEST_REQUIRED` (solo `--no-request`, para herramientas, se salta la puerta).
-Ver ADRs 0034 y 0035.
+
+Con `--follow` el motor drena la cola y lanza un turno de seguimiento (marcado
+como `engine`, no como persona) para que el capitán cuente el resultado y
+responda las preguntas de los workers con `task answer --text`. El capitán
+sigue sin fusionar. Ver ADRs 0034, 0035 y 0036.
 
 `captain init` escribe un `AGENTS.md` con las reglas: todo cambio pasa por
 `crew task create`/`run`, nunca se editan los worktrees, se consulta el estado

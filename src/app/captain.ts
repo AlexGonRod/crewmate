@@ -87,6 +87,8 @@ export interface CaptainBrief {
     title: string;
     state: TaskState;
     reason: string;
+    /** The question the agent left unanswered, if any. */
+    question: string | null;
   }>;
   tasks: ReturnType<typeof summarizeDetail>[];
 }
@@ -146,12 +148,27 @@ export function buildCaptainBrief(
   const lease = store.getLease('daemon');
   const attention = tasks
     .filter((task) => ATTENTION_STATES.includes(task.state))
-    .map((task) => ({
-      taskId: task.id,
-      title: task.title,
-      state: task.state,
-      reason: ATTENTION_REASONS[task.state] ?? task.state,
-    }));
+    .map((task) => {
+      const detail = store.getTaskDetail(task.id);
+      const question =
+        task.state === 'waiting_input' || task.state === 'blocked'
+          ? (detail.messages
+              .filter(
+                (message) =>
+                  message.direction === 'out' &&
+                  message.kind === 'question' &&
+                  message.consumedAt === null,
+              )
+              .at(-1)?.body ?? null)
+          : null;
+      return {
+        taskId: task.id,
+        title: task.title,
+        state: task.state,
+        reason: ATTENTION_REASONS[task.state] ?? task.state,
+        question,
+      };
+    });
 
   const projects = store.listProjects();
   const memory = (

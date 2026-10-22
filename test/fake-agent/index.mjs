@@ -42,11 +42,55 @@ if (mode === 'captain') {
     writeFileSync(promptPath, prompt, 'utf8');
   }
   const request = process.env.CREW_CAPTAIN_REQUEST ?? '';
+  let answer = `Entendido: he creado la tarea para "${request}".`;
+  if (request && process.env.CREW_FAKE_CAPTAIN_CREATE === '1') {
+    const bin = process.env.CREW_BIN ?? 'crew';
+    const project = process.env.CREW_FAKE_CAPTAIN_PROJECT ?? 'demo';
+    const created = JSON.parse(
+      execFileSync(
+        bin,
+        [
+          '--json',
+          'task',
+          'create',
+          '--project',
+          project,
+          '--title',
+          'Cambiar el saludo',
+          '--request',
+          request,
+          '--brief',
+          'Cambia el saludo y nada mas',
+          '--methodology',
+          'free',
+        ],
+        { encoding: 'utf8' },
+      ),
+    );
+    execFileSync(bin, ['--json', 'task', 'queue', created.task.id], {
+      encoding: 'utf8',
+    });
+    answer = `Entendido: he creado y encolado ${created.task.id}.`;
+  } else if (!request) {
+    const bin = process.env.CREW_BIN ?? 'crew';
+    const attention = prompt.split('### Necesita atención')[1]?.split('###')[0] ?? '';
+    const waiting = attention.match(/- (tsk_[A-Za-z0-9]+) \[waiting_input\]/);
+    if (waiting && process.env.CREW_FAKE_CAPTAIN_ANSWER === '1') {
+      execFileSync(
+        bin,
+        ['--json', 'task', 'answer', waiting[1], '--text', 'usa el diseno existente'],
+        { encoding: 'utf8' },
+      );
+      answer = `Seguimiento: respondida la pregunta de ${waiting[1]}; la he reencolado.`;
+    } else {
+      answer = 'Seguimiento: he leido el estado; ya te he dicho lo que hay.';
+    }
+  }
   console.log(
     JSON.stringify({
       type: 'text',
       sessionID: process.env.CREW_FAKE_SESSION_ID ?? 'ses_fake_captain',
-      part: { type: 'text', text: `Entendido: he creado la tarea para "${request}".` },
+      part: { type: 'text', text: answer },
     }),
   );
   process.exit(0);
@@ -317,6 +361,29 @@ switch (scenario) {
         },
       ],
     });
+    break;
+  }
+  case 'needs_input_once': {
+    const asked = path.join(worktree, 'FAKE_QUESTION_ASKED.txt');
+    if (existsSync(asked)) {
+      writeMarker('fake agent continued after the answer\n');
+      const commit = commitMarker();
+      writeReport('done', 'Fake agent continued after the answer', {
+        tests: [{ command: 'fake-test', status: 'passed' }],
+        artifacts: [{ kind: 'commit', ref: commit, label: 'Fake commit' }],
+      });
+    } else {
+      writeFileSync(asked, 'asked\n');
+      writeReport('needs_input', 'Fake agent needs a decision', {
+        questions: [
+          {
+            id: 'q1',
+            text: 'Should the fake agent use the existing design system?',
+            blocking: true,
+          },
+        ],
+      });
+    }
     break;
   }
   case 'crash': {
