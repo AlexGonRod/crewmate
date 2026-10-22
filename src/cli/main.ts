@@ -731,6 +731,7 @@ function buildProgram(): Command {
     .option('--method <method>', 'merge method: merge, squash or rebase')
     .option('--delete-branch', 'delete the branch after merging')
     .option('--accept-only', 'only accept the task, do not touch the pull request')
+    .option('--force', 'bypass the reviewed-commit receipt; every other gate still applies')
     .action(
       async (
         id: string,
@@ -739,6 +740,7 @@ function buildProgram(): Command {
           method?: string;
           deleteBranch?: boolean;
           acceptOnly?: boolean;
+          force?: boolean;
         },
       ) => {
         const result = await withStore((store) => {
@@ -762,6 +764,7 @@ function buildProgram(): Command {
             deleteBranch: options.deleteBranch ?? projectConfig?.auto_merge?.delete_branch,
             authorizedBy: options.by,
             skipMerge: options.acceptOnly,
+            force: options.force,
             projectConfig,
           });
         });

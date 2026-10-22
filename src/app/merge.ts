@@ -15,6 +15,7 @@ import {
   resolveDeliveryPolicy,
   type DeliveryPolicy,
 } from './delivery';
+import { localBranchHead, remoteBranchHead } from '../git/git';
 import { summarizeDetail } from './summary';
 import type { Store } from '../store/store';
 
@@ -38,12 +39,18 @@ export interface MergeDecision {
   gates: MergeGate[];
   missing: string[];
   risk: TaskSummary['risk'];
+  /** The frozen receipt: the reviewed commit and where its head was read. */
+  receipt: {
+    headSha: string;
+    source: 'remote' | 'local';
+  } | null;
   pr: {
     url: string;
     state: string;
     merged: boolean;
     draft: boolean;
     mergeable: string;
+    headSha?: string | null;
   } | null;
 }
 
@@ -55,9 +62,48 @@ export interface MergeOutcome {
   authorizedBy: string;
 }
 
+/** A resolved head of the reviewed branch, pending comparison in the gates. */
+export interface ResolvedReceipt {
+  headSha: string | null;
+  source: 'remote' | 'local';
+  error?: string;
+}
+
 function latestArtifact<T>(detail: TaskDetail, kind: string): T | null {
   const artifact = detail.artifacts.filter((item) => item.kind === kind).at(-1);
   return artifact?.metadata ? (artifact.metadata as T) : null;
+}
+
+/**
+ * The head of the reviewed branch, resolved from the project. The comparison
+ * stays lazy because evaluating it requires git access; with `force: true` no
+ * receipt is applicable.
+ */
+function resolveReceipt(
+  detail: TaskDetail,
+  policy: DeliveryPolicy,
+  options: {
+    force?: boolean;
+    projectRootPath: string;
+    pr: MergeDecision['pr'];
+  },
+): ResolvedReceipt | null {
+  const { task } = detail;
+  if (options.force) {
+    return null;
+  }
+  if (!task.commitSha || !task.branch) {
+    return null;
+  }
+  if (pathNeedsPullRequest(policy.path) && task.prUrl) {
+    if (options.pr?.headSha) {
+      return { headSha: options.pr.headSha, source: 'remote' };
+    }
+    const probe = remoteBranchHead(options.projectRootPath, task.branch);
+    return { headSha: probe.sha, source: 'remote', error: probe.error ?? undefined };
+  }
+  const probe = localBranchHead(options.projectRootPath, task.branch);
+  return { headSha: probe.sha, source: 'local', error: probe.error ?? undefined };
 }
 
 /**
@@ -86,10 +132,19 @@ export function lastHumanAuthorization(
 export function evaluateMerge(
   detail: TaskDetail,
   options: {
-    pr?: { url: string; state: string; merged: boolean; draft: boolean; mergeable: string } | null;
+    pr?: {
+      url: string;
+      state: string;
+      merged: boolean;
+      draft: boolean;
+      mergeable: string;
+      headSha?: string | null;
+    } | null;
     projectConfig?: ProjectConfig | null;
     /** The human authorization to take into account. */
     authorization?: { authorizedBy: string; reason: string | null } | null;
+    /** The resolved head of the reviewed branch, when a receipt is applicable. */
+    receipt?: ResolvedReceipt | null;
   } = {},
 ): MergeDecision {
   const summary = summarizeDetail(detail);
@@ -147,7 +202,27 @@ export function evaluateMerge(
     });
   }
 
-  // 3. The authority: who signs this merge.
+  // 3. The receipt: the reviewed commit must still be the head of the branch.
+  const receipt = options.receipt ?? null;
+  let receiptResult: MergeDecision['receipt'] = null;
+  if (receipt !== null && task.commitSha) {
+    const receiptOk =
+      receipt.headSha !== null && receipt.headSha !== '' && receipt.headSha === task.commitSha;
+    gates.push({
+      name: 'head matches the reviewed commit',
+      ok: receiptOk,
+      detail: receiptOk
+        ? `head ${receipt.headSha} (${receipt.source}) is the reviewed commit`
+        : receipt.error
+          ? `the head of the branch could not be verified (${receipt.source}): ${receipt.error}`
+          : `the head is ${receipt.headSha} (${receipt.source}), not the reviewed commit ${task.commitSha}: the branch moved after the review`,
+    });
+    if (receiptOk && receipt.headSha) {
+      receiptResult = { headSha: receipt.headSha, source: receipt.source };
+    }
+  }
+
+  // 4. The authority: who signs this merge.
   const risk = summary.risk;
   const riskLevel: RiskLevel | null = risk ? risk.level : null;
   const highRisk = riskLevel === 'high';
@@ -171,7 +246,7 @@ export function evaluateMerge(
         : 'the captain must authorize: run "crew task review <id>"',
   });
 
-  // 4. The pull request itself.
+  // 5. The pull request itself.
   const pr = options.pr ?? null;
   if (needsPr) {
     gates.push({
@@ -208,6 +283,7 @@ export function evaluateMerge(
     gates,
     missing,
     risk: summary.risk,
+    receipt: receiptResult,
     pr: pr
       ? {
           url: pr.url,
@@ -215,6 +291,7 @@ export function evaluateMerge(
           merged: pr.merged,
           draft: pr.draft,
           mergeable: pr.mergeable,
+          headSha: pr.headSha ?? null,
         }
       : null,
   };
@@ -234,6 +311,8 @@ export function mergeTask(
     projectConfig?: ProjectConfig | null;
     /** An explicit human authorization, when the caller holds one. */
     authorization?: { authorizedBy: string; reason: string | null } | null;
+    /** Bypass the reviewed-commit receipt; every other gate still applies. */
+    force?: boolean;
   },
 ): MergeOutcome {
   const detail = store.getTaskDetail(taskId);
@@ -257,6 +336,7 @@ export function mergeTask(
       merged: info.merged,
       draft: Boolean(info.draft),
       mergeable: info.mergeable ?? 'UNKNOWN',
+      headSha: info.headSha ?? null,
     };
   }
 
@@ -264,6 +344,11 @@ export function mergeTask(
     pr,
     projectConfig: options.projectConfig ?? null,
     authorization: options.authorization,
+    receipt: resolveReceipt(detail, policy, {
+      force: options.force,
+      projectRootPath: options.projectRootPath,
+      pr,
+    }),
   });
   if (!decision.allowed) {
     throw new CrewError(

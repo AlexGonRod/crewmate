@@ -62,6 +62,9 @@ Después de la Fase 4, cuatro piezas más:
 - La petición entra por el capitán: `crew ask` / `crew chat`, la petición
   literal guardada en la tarea y `task create` cerrado sin ella (ADR 0035), con
   seguimiento y respuestas a los workers (`--follow`, ADR 0036).
+- El recibo del candidato revisado: `task merge` exige que el head del
+  PR/rama siga siendo el commit revisado; `--force` es el bypass humano
+  (ADR 0037).
 
 ## Fase 0 — Núcleo durable
 
@@ -442,3 +445,4 @@ concurrencia.
 - ADR 0034: un contrato de rol por rol, con la forma de un `AGENTS.md`.
 - ADR 0035: la petición entra por el capitán y viaja literal hasta el worker.
 - ADR 0036: el motor escribe el seguimiento y el capitán responde preguntas.
+- ADR 0037: el recibo del candidato revisado (el merge exige el head vigente).

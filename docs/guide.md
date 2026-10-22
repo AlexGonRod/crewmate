@@ -420,6 +420,11 @@ firma una persona: `crew task review <id>` (abre el diff en el editor) o
 `crew task merge <id>` después de una revisión previa. Con `yolo: true` en la
 config del proyecto, el capitán puede fusionar lo verde sin preguntar.
 
+**"head matches the reviewed commit: the branch moved after the review".**
+Alguien empujó commits nuevos a la rama después de la revisión aprobada, y el
+motor no los firma. Haz un ciclo nuevo de revisión (o `crew task review <id>`)
+o, si los revisaste tú, `crew task merge <id> --force`.
+
 **"CI is configured but no check has reported".** El CI todavía no ha
 reportado. Espera a que reporte: ese veto no se salta con `yolo`.
 

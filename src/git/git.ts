@@ -98,3 +98,38 @@ export function detectForge(remoteUrl: string | null): string | null {
 export function currentBranch(worktreePath: string): string {
   return gitOrThrow(['rev-parse', '--abbrev-ref', 'HEAD'], worktreePath);
 }
+
+export interface BranchHeadProbe {
+  sha: string | null;
+  error: string | null;
+}
+
+export function remoteBranchHead(rootPath: string, branch: string): BranchHeadProbe {
+  const ref = `refs/heads/${branch}`;
+  const pushUrl = git(['remote', 'get-url', '--push', 'origin'], rootPath);
+  const target = pushUrl.status === 0 && pushUrl.stdout ? pushUrl.stdout : 'origin';
+  const result = git(['ls-remote', target, ref], rootPath);
+  if (result.status !== 0) {
+    return { sha: null, error: `git ls-remote failed: ${result.stderr || 'exit code != 0'}` };
+  }
+  const line = result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.endsWith(ref));
+  const sha = line?.split('\t')[0]?.trim() ?? null;
+  if (!sha) {
+    return { sha: null, error: `branch ${branch} not found on origin` };
+  }
+  return { sha, error: null };
+}
+
+export function localBranchHead(rootPath: string, branch: string): BranchHeadProbe {
+  const result = git(
+    ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`],
+    rootPath,
+  );
+  if (result.status !== 0) {
+    return { sha: null, error: `branch ${branch} not found in ${rootPath}` };
+  }
+  return { sha: result.stdout || null, error: null };
+}

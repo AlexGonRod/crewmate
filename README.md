@@ -145,7 +145,7 @@ crew task clean tsk_... --force
 | `crew task cancel <id>` | Cancela la tarea y su proceso activo |
 | `crew task clean <id> [--force]` | Elimina el worktree; nunca borra la rama |
 | `crew task accept <id> [--force]` | Acepta una tarea en `review`; con `pr`, verifica que el PR esté mergeado |
-| `crew task merge <id> [--by <quien>] [--method <merge\|squash\|rebase>] [--delete-branch] [--accept-only]` | Comprueba las puertas y mergea o acepta la tarea; si falta algo, explica qué falta |
+| `crew task merge <id> [--by <quien>] [--method <merge\|squash\|rebase>] [--delete-branch] [--accept-only] [--force]` | Comprueba las puertas y mergea o acepta la tarea; si falta algo, explica qué falta. `--force` salta solo el recibo del candidato revisado |
 | `crew task reject <id> [motivo...] [--reason <texto>]` | Rechaza, guarda feedback y reencola al developer |
 | `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--scheduling <serial\|parallel>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
@@ -696,8 +696,13 @@ mergeable.
   proyecto (`--method` lo sobrescribe) y acepta la tarea.
 - La autorización queda en el event log con el evento `task.authorized`.
 - `--accept-only` acepta la tarea sin tocar el PR (proyectos sin GitHub).
+- **Recibo del candidato revisado**: el merge también exige que el head del
+  PR/rama siga siendo el commit que el motor entregó (`commit_sha`). Si
+  alguien empujó commits nuevos tras la revisión, el merge falla con el error
+  `head matches the reviewed commit` y explica qué hacer: re-revisar o
+  `crew task merge --force` (un humano que revisó él mismo los commits extra).
 
-Ver ADR 0019.
+Ver ADR 0019 y ADR 0037.
 
 ## Política de ejecución y progreso
 

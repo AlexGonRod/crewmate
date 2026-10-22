@@ -7,6 +7,8 @@ export interface ForgePullRequest {
   number?: number;
   mergeable?: string;
   draft?: boolean;
+  /** Head commit of the source branch, when the forge reports it. */
+  headSha?: string | null;
 }
 
 export interface CreatePullRequestOptions {

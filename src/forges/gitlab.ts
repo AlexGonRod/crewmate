@@ -75,6 +75,7 @@ function parseMergeRequest(raw: string): ForgePullRequest | null {
     number: typeof item.iid === 'number' ? item.iid : undefined,
     mergeable,
     draft: item.draft === true || item.work_in_progress === true,
+    headSha: typeof item.sha === 'string' && item.sha.length > 0 ? item.sha : null,
   };
 }
 

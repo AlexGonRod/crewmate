@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { evaluateMerge, mergeTask } from '../../src/app/merge';
 import { CrewError } from '../../src/core/errors';
@@ -5,6 +9,7 @@ import type { ReportPayload } from '../../src/core/types';
 import { Store } from '../../src/store/store';
 
 const stores: Store[] = [];
+const rootDirs: string[] = [];
 
 function createStore(): Store {
   const store = new Store(':memory:');
@@ -136,6 +141,12 @@ afterEach(() => {
   while (stores.length > 0) {
     stores.pop()?.close();
   }
+  while (rootDirs.length > 0) {
+    const dir = rootDirs.pop();
+    if (dir) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
 });
 
 describe('evaluateMerge', () => {
@@ -258,7 +269,89 @@ describe('evaluateMerge', () => {
     expect(decision.allowed).toBe(false);
     expect(decision.missing.join(' ')).toContain('pull request open');
   });
+
+  it('accepts the merge when the head is still the reviewed commit', () => {
+    const store = createStore();
+    const taskId = createTask(store);
+    prepareTask(store, taskId, { ci: 'passed' });
+    authorize(store, taskId);
+    store.recordCommit(taskId, 'acadef00');
+
+    const decision = evaluateMerge(store.getTaskDetail(taskId), {
+      receipt: { headSha: 'acadef00', source: 'local' },
+    });
+    expect(decision.allowed).toBe(true);
+    expect(decision.receipt).toEqual({ headSha: 'acadef00', source: 'local' });
+  });
+
+  it('blocks the merge when the branch moved after the review', () => {
+    const store = createStore();
+    const taskId = createTask(store);
+    prepareTask(store, taskId, { ci: 'passed' });
+    authorize(store, taskId);
+    store.recordCommit(taskId, 'acadef00');
+
+    const decision = evaluateMerge(store.getTaskDetail(taskId), {
+      receipt: { headSha: 'baddcafe', source: 'remote' },
+    });
+    expect(decision.allowed).toBe(false);
+    expect(decision.receipt).toBeNull();
+    const missing = decision.missing.join(' ');
+    expect(missing).toContain('head matches the reviewed commit');
+    expect(missing).toContain('the branch moved after the review');
+  });
+
+  it('blocks the merge when the head cannot be verified', () => {
+    const store = createStore();
+    const taskId = createTask(store);
+    prepareTask(store, taskId, { ci: 'passed' });
+    authorize(store, taskId);
+    store.recordCommit(taskId, 'acadef00');
+
+    const decision = evaluateMerge(store.getTaskDetail(taskId), {
+      receipt: { headSha: null, source: 'remote', error: 'no route to host' },
+    });
+    expect(decision.allowed).toBe(false);
+    const missing = decision.missing.join(' ');
+    expect(missing).toContain('head matches the reviewed commit');
+    expect(missing).toContain('could not be verified');
+  });
+
+  it('skips the receipt gate when there is no reviewed commit yet', () => {
+    const store = createStore();
+    const taskId = createTask(store);
+    prepareTask(store, taskId);
+    authorize(store, taskId);
+
+    const decision = evaluateMerge(store.getTaskDetail(taskId), {
+      receipt: { headSha: 'acadef00', source: 'remote' },
+    });
+    expect(decision.receipt).toBeNull();
+  });
 });
+
+function createGitRepo(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'crew-merge-'));
+  rootDirs.push(dir);
+  const run = (args: string[]) =>
+    execFileSync('git', args, {
+      cwd: dir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  run(['init', '-b', 'main']);
+  run(['config', 'user.email', 'crew@test']);
+  run(['config', 'user.name', 'crew']);
+  writeFileSync(path.join(dir, 'README.md'), 'crew\n');
+  run(['add', '.']);
+  run(['commit', '-m', 'initial']);
+  run(['checkout', '-b', 'crew/test']);
+  return dir;
+}
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+}
 
 describe('mergeTask', () => {
   it('accepts the task and records the authorization', () => {
@@ -331,5 +424,102 @@ describe('mergeTask', () => {
     expect(code).toBe('MERGE_BLOCKED');
     expect(message).toContain('verification passed');
     expect(store.getTaskOrThrow(taskId).state).toBe('review');
+  });
+});
+
+describe('mergeTask receipt with a real repository', () => {
+  it('merges when the head is still the reviewed commit', () => {
+    const root = createGitRepo();
+    const store = createStore();
+    const project = store.createProject({
+      name: 'repo',
+      rootPath: root,
+      defaultBranch: 'main',
+      remoteUrl: null,
+      forge: null,
+    });
+    const task = store.createTask({
+      projectId: project.id,
+      title: 'Receipt merge',
+      briefText: 'Do the thing',
+      deliveryMode: 'local',
+      methodology: 'free',
+      spec: null,
+    });
+    prepareTask(store, task.id);
+    const sha = git(root, 'rev-parse', 'HEAD');
+    store.recordCommit(task.id, sha);
+    authorize(store, task.id);
+
+    const outcome = mergeTask(store, task.id, {
+      projectRootPath: root,
+      method: 'squash',
+      authorizedBy: 'captain',
+      livePr: false,
+      authorization: { authorizedBy: 'captain', reason: 'reviewed' },
+    });
+
+    expect(outcome.decision.allowed).toBe(true);
+    expect(outcome.decision.receipt).toEqual({ headSha: sha, source: 'local' });
+    expect(outcome.accepted).toBe(true);
+    expect(outcome.taskState).toBe('done');
+  });
+
+  it('blocks the merge when the branch moved and --force skips only the receipt', () => {
+    const root = createGitRepo();
+    const store = createStore();
+    const project = store.createProject({
+      name: 'repo',
+      rootPath: root,
+      defaultBranch: 'main',
+      remoteUrl: null,
+      forge: null,
+    });
+    const task = store.createTask({
+      projectId: project.id,
+      title: 'Receipt drift',
+      briefText: 'Do the thing',
+      deliveryMode: 'local',
+      methodology: 'free',
+      spec: null,
+    });
+    prepareTask(store, task.id);
+    const sha = git(root, 'rev-parse', 'HEAD');
+    store.recordCommit(task.id, sha);
+    authorize(store, task.id);
+    git(root, 'commit', '--allow-empty', '-m', 'human fix after the review');
+    const drifted = git(root, 'rev-parse', 'HEAD');
+    expect(drifted).not.toBe(sha);
+
+    let message = '';
+    try {
+      mergeTask(store, task.id, {
+        projectRootPath: root,
+        method: 'squash',
+        authorizedBy: 'captain',
+        livePr: false,
+        authorization: { authorizedBy: 'captain', reason: 'reviewed' },
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : '';
+    }
+    expect(message).toContain('head matches the reviewed commit');
+    expect(message).toContain('the branch moved after the review');
+    expect(store.getTaskOrThrow(task.id).state).toBe('review');
+
+    const forced = mergeTask(store, task.id, {
+      projectRootPath: root,
+      method: 'squash',
+      authorizedBy: 'captain',
+      livePr: false,
+      force: true,
+      authorization: { authorizedBy: 'captain', reason: 'reviewed again' },
+    });
+    expect(forced.decision.allowed).toBe(true);
+    expect(forced.decision.receipt).toBeNull();
+    expect(forced.decision.gates.map((gate) => gate.name)).not.toContain(
+      'head matches the reviewed commit',
+    );
+    expect(forced.accepted).toBe(true);
   });
 });

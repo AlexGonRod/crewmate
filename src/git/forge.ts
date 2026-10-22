@@ -9,6 +9,8 @@ export interface PullRequestInfo {
   number?: number;
   mergeable?: string;
   draft?: boolean;
+  /** Head commit of the pull request branch, when GitHub reports it. */
+  headSha?: string | null;
 }
 
 function gh(args: string[], cwd: string): { status: number; stdout: string; stderr: string } {
@@ -66,6 +68,7 @@ function parsePullRequest(raw: string): PullRequestInfo | null {
     mergeable:
       typeof item.mergeable === 'string' ? item.mergeable : undefined,
     draft: item.isDraft === true,
+    headSha: typeof item.headRefOid === 'string' && item.headRefOid.length > 0 ? item.headRefOid : null,
   };
 }
 
@@ -140,7 +143,7 @@ export function viewPullRequest(cwd: string, url: string): PullRequestInfo {
       'view',
       url,
       '--json',
-      'url,state,mergedAt,number,mergeable,isDraft',
+      'url,state,mergedAt,number,mergeable,isDraft,headRefOid',
     ],
     cwd,
   );
