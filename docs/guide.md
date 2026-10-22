@@ -70,8 +70,9 @@ crew init                     # escribe .crew/config.yaml
 crew project add . --name mi-proyecto
 ```
 
-`crew init` detecta el harness, la metodología y deja `verify: []`. Edita
-`.crew/config.yaml` para poner los comandos de verificación del proyecto:
+`crew init` detecta el harness, la metodología y los comandos de verificación
+de la toolchain (package.json con test/lint/typecheck, Cargo, Go, Python,
+Makefile). Edita `.crew/config.yaml` si la detección no acierta o falta algo:
 
 ```yaml
 schema: crew.project/v1
@@ -84,7 +85,8 @@ verify:
 ```
 
 Sin `verify`, el gate de verificación bloquea el merge (por diseño: no se
-acepta lo que no se ha comprobado).
+acepta lo que no se ha comprobado) — de ahí el aviso del CLI al terminar
+`crew init` sin detección.
 
 ### 3.2 Crear y ejecutar una tarea
 

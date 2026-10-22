@@ -11,12 +11,14 @@ import {
 import { readProjectConfig, projectConfigPath } from '../config/config';
 import type { Project } from '../core/types';
 import type { Store } from '../store/store';
+import { detectVerifyCommands } from './intake';
 
 export interface InitProjectResult {
   rootPath: string;
   configPath: string;
   name: string;
   defaultBranch: string;
+  verify: string[];
 }
 
 export function initProject(cwd: string, force = false): InitProjectResult {
@@ -31,6 +33,7 @@ export function initProject(cwd: string, force = false): InitProjectResult {
 
   const name = path.basename(rootPath);
   const defaultBranch = detectDefaultBranch(rootPath);
+  const verify = detectVerifyCommands(rootPath).commands;
   mkdirSync(path.dirname(configPath), { recursive: true });
   writeFileSync(
     configPath,
@@ -40,13 +43,13 @@ export function initProject(cwd: string, force = false): InitProjectResult {
         name,
         default_branch: defaultBranch,
         methodology: 'spec',
-        verify: [],
+        verify,
       },
       { lineWidth: 0 },
     ),
   );
 
-  return { rootPath, configPath, name, defaultBranch };
+  return { rootPath, configPath, name, defaultBranch, verify };
 }
 
 export function addProject(store: Store, inputPath: string, nameOption?: string): Project {

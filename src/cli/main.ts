@@ -492,6 +492,13 @@ function buildProgram(): Command {
         printJson(result);
       } else {
         console.log(`Initialized ${result.configPath}`);
+        if (result.verify.length > 0) {
+          console.log(`Verify commands: ${result.verify.join(', ')}`);
+        } else {
+          console.log(
+            'No verify commands detected: edit .crew/config.yaml before registering the project',
+          );
+        }
       }
     });
 
