@@ -108,7 +108,34 @@ crew task queue tsk_...
 crew daemon run --once      # procesa lo que haya en la cola
 ```
 
-### 3.3 Revisar y decidir
+### 3.3 La autoridad del merge
+
+Un gate no es "los checks pasan": es **quién tiene la autoridad para
+firmar**. Son tres cosas y se resuelven en orden:
+
+1. **La ruta** (en `.crew/config.yaml` del proyecto) dice cuánto rigor
+   técnico exige el trabajo:
+
+   ```yaml
+   delivery:
+     mode: no-mistakes      # no-mistakes | direct-PR | local-only
+     yolo: false
+   ```
+
+   - `no-mistakes`: verificación + tester independiente + CI + PR.
+   - `direct-PR`: PR sin reviewer independiente (la vía rápida).
+   - `local-only`: todo el rigor, pero la rama aterriza en local.
+
+2. **La autoridad** decide quién firma. Sin `yolo`, solo una persona fusiona.
+   Con `yolo`, el capitán fusiona lo verde y en alcance por su cuenta.
+
+3. **El veto** es absoluto: `yolo` no autoriza un PR rojo, ni un check
+   requerido sin reportar, ni un cambio de riesgo `high`. Esos tres escalan
+   siempre.
+
+Tu firma es el artefacto que deja la revisión en el editor, no una palabra.
+
+### 3.4 Revisar y decidir
 
 Cuando la tarea llega a `review` (y solo entonces), se abre en tu editor:
 
@@ -130,7 +157,7 @@ crew-reason: encaja con el brief
 
 El editor se elige con `CREW_EDITOR` > `VISUAL` > `EDITOR` > `nvim`.
 
-### 3.4 Preguntas del agente
+### 3.5 Preguntas del agente
 
 Si el agente necesita una decisión, la tarea pasa a `waiting_input`:
 
@@ -222,7 +249,41 @@ El motor respeta las dependencias y lanza en paralelo lo que puede.
 
 ---
 
-## 8. Memoria del proyecto
+## 8. Skills y conocimiento del proyecto
+
+Los skills son los procedimientos que solo aplican en una situación
+concreta: revisar, mergear, decidir si algo es una investigación.
+
+```sh
+crew --json skills list      # los que ven tus agentes
+```
+
+El brief de cada agente lleva los skills disponibles, así que puede cargarlos
+cuando la situación lo pide. Los del crew se instalan como cualquier otro
+skill del ecosistema:
+
+```sh
+npx skills add AlexGonRod/crewmate --skill crew-review -a opencode
+```
+
+| Skill | Para qué |
+| --- | --- |
+| `crew-review` | revisar una tarea y decidir accept/reject en el editor |
+| `crew-merge-authority` | cuándo fusionar sin preguntar y qué escala siempre |
+| `crew-guidelines` | dónde vive cada hecho y la regla de un solo dueño |
+| `crew-memory` | escribir, corregir y podar la memoria del proyecto |
+| `crew-scout` | cuándo investigar en vez de construir |
+| `stow` | barrer la sesión y archivar lo aprendido |
+
+### El `stow`
+
+Al cerrar una sesión con trabajo hecho, el skill `stow` barre lo que se
+aprendió y lo archiva donde toca: la memoria del proyecto (convenciones,
+decisiones, trampas), las tareas (lo que queda abierto) o `.stow-notes.md`
+(la reserva privada). Pregunta una vez si el destino es ambiguo y cierra con
+un veredicto honesto de qué se capturó y qué no.
+
+## 9. Memoria del proyecto
 
 Notas durables que llegan al brief de cada agente (convenciones, decisiones,
 trampas):
@@ -235,7 +296,7 @@ crew memory list --project mi-proyecto
 
 ---
 
-## 9. Investigación sin cambios
+## 10. Investigación sin cambios
 
 ```sh
 crew scout --project mi-proyecto --title "Cómo funciona el cache" \
@@ -246,7 +307,7 @@ Un `scout` no toca código: produce un informe y termina en `review`.
 
 ---
 
-## 10. Workers remotos
+## 11. Workers remotos
 
 Si el host remoto tiene el repo, el worktree, el commit y el push ocurren
 allí:
@@ -269,7 +330,7 @@ Sin `repo_path`, el host remoto tiene que ver la misma ruta del worktree
 
 ---
 
-## 11. Panel web
+## 12. Panel web
 
 ```sh
 crew ui --port 4173
@@ -279,7 +340,7 @@ Solo lectura: resumen, tareas, gates, riesgo, CI. Bind a `127.0.0.1`.
 
 ---
 
-## 12. Referencia rápida
+## 13. Referencia rápida
 
 | Quiero… | Comando |
 | --- | --- |
@@ -299,10 +360,18 @@ Solo lectura: resumen, tareas, gates, riesgo, CI. Bind a `127.0.0.1`.
 
 ---
 
-## 13. Problemas frecuentes
+## 14. Problemas frecuentes
 
 **"verification is none" y no deja mergear.** El proyecto no tiene comandos
 `verify`. Añádelos a `.crew/config.yaml`.
+
+**"merge authority: the captain must authorize".** Sin `yolo`, el merge lo
+firma una persona: `crew task review <id>` (abre el diff en el editor) o
+`crew task merge <id>` después de una revisión previa. Con `yolo: true` en la
+config del proyecto, el capitán puede fusionar lo verde sin preguntar.
+
+**"CI is configured but no check has reported".** El CI todavía no ha
+reportado. Espera a que reporte: ese veto no se salta con `yolo`.
 
 **"Another daemon holds the lease".** Ya hay un daemon corriendo. `crew
 daemon status` para verlo; `crew service status` si es el servicio.
@@ -323,7 +392,7 @@ clean <id> --force` para los worktrees, y `crew doctor` para ver qué queda.
 
 ---
 
-## 14. Cómo se desarrolla `crew`
+## 15. Cómo se desarrolla `crew`
 
 ```sh
 pnpm test          # 260 tests

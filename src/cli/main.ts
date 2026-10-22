@@ -59,6 +59,8 @@ import {
   resolveWorkspace,
 } from '../app/workspace';
 import { answerTaskInEditor, reviewTask } from '../app/review-flow';
+import { taskDeliveryModeFor } from '../app/delivery';
+import { discoverSkills, findProjectRoot } from '../app/skills';
 import { openInEditor } from '../app/editor';
 import { getForge } from '../forges';
 import {
@@ -537,7 +539,7 @@ function buildProgram(): Command {
           const projectConfig = readProjectConfig(selected.rootPath);
           const deliveryMode = options.delivery
             ? parseDeliveryMode(options.delivery)
-            : projectConfig?.delivery ?? context.config.delivery;
+            : taskDeliveryModeFor(projectConfig) ?? context.config.delivery;
           const explicitMethodology = options.methodology
             ? parseMethodology(options.methodology)
             : undefined;
@@ -699,6 +701,7 @@ function buildProgram(): Command {
             deleteBranch: options.deleteBranch ?? projectConfig?.auto_merge?.delete_branch,
             authorizedBy: options.by,
             skipMerge: options.acceptOnly,
+            projectConfig,
           });
         });
         if (globalOptions().json) {
@@ -2174,6 +2177,56 @@ function buildProgram(): Command {
         return;
       }
       console.log(file);
+    });
+
+  const skills = program
+    .command('skills')
+    .description('the skills the agents can load');
+
+  skills
+    .command('list')
+    .description('list the skills the agents can load')
+    .option('--project <ref>', 'include the skills of a registered project')
+    .action(async (options: { project?: string }) => {
+      let projectRoot: string | null = null;
+      if (options.project) {
+        const project = await withStore((store) => store.getProject(options.project as string));
+        if (!project) {
+          throw new CrewError('PROJECT_NOT_FOUND', `Project not found: ${options.project}`);
+        }
+        projectRoot = project.rootPath;
+      } else {
+        projectRoot = findProjectRoot();
+      }
+      const skills = discoverSkills({ projectRoot });
+      if (globalOptions().json) {
+        printJson({ projectRoot, count: skills.length, skills });
+        return;
+      }
+      if (skills.length === 0) {
+        console.log('No skills found');
+        console.log(
+          'Look for them in .opencode/skills, .claude/skills, .agents/skills (project) or ~/.agents/skills (global).',
+        );
+        return;
+      }
+      printTable(
+        skills.map((skill) => ({
+          name: skill.name,
+          scope: skill.scope,
+          description:
+            skill.description.length > 90
+              ? `${skill.description.slice(0, 89)}…`
+              : skill.description,
+          source: skill.source,
+        })),
+        [
+          { key: 'name', label: 'SKILL' },
+          { key: 'scope', label: 'SCOPE' },
+          { key: 'description', label: 'DESCRIPTION' },
+          { key: 'source', label: 'SOURCE' },
+        ],
+      );
     });
 
   program

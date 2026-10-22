@@ -20,6 +20,8 @@ import {
   pushWorkspace,
 } from './workspace';
 import { isRetryableError } from './retry';
+import { assessRisk } from '../risk/risk';
+import { resolveDeliveryPolicy } from './delivery';
 import { getForge } from '../forges';
 import {
   DEFAULT_CI_INTERVAL_SECONDS,
@@ -497,15 +499,38 @@ async function runPipelineLocked(
           throw new CrewError('TASK_ABORTED', 'Task aborted before merge');
         }
         task = store.requestReview(task.id);
-        const policy = projectConfig?.auto_merge;
-        if (!policy) {
+        const deliveryPolicy = resolveDeliveryPolicy({
+          taskMode: delivery,
+          projectConfig,
+        });
+        if (!deliveryPolicy.yolo) {
           throw new CrewError(
             'MERGE_POLICY_REQUIRED',
-            'Delivery mode "auto_merge" requires a merge policy',
+            'Delivery mode "auto_merge" requires delivery.yolo in the project config',
           );
         }
-        const method = policy.method;
-        const deleteBranch = policy.delete_branch ?? false;
+        // The standing authority never covers a high-risk change: that one
+        // waits for a human, whatever the posture says.
+        const changeRisk = assessRisk({
+          change: change ?? { files: 0, additions: 0, deletions: 0, paths: [] },
+          testerReport,
+          verifications,
+          ci: ci ? { state: ci.state } : null,
+        });
+        if (changeRisk.level === 'high') {
+          throw new CrewError(
+            'MERGE_REQUIRES_HUMAN',
+            'The change is high risk: it waits for a human authorization',
+          );
+        }
+        if (projectConfig?.ci && !ci) {
+          throw new CrewError(
+            'CI_NOT_REPORTED',
+            'CI is configured but no check has reported yet',
+          );
+        }
+        const method = deliveryPolicy.method;
+        const deleteBranch = deliveryPolicy.deleteBranch;
         try {
           (forge as NonNullable<typeof forge>).mergePullRequest({
             cwd: project.rootPath,

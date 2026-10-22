@@ -4,6 +4,7 @@ import { isPidAlive } from '../core/process';
 import { isTerminalTaskState } from '../core/state';
 import { readProjectConfig, type ResolvedContext } from '../config/config';
 import { checkRemoteRunner, resolveWorkspace } from '../app/workspace';
+import { discoverSkills } from '../app/skills';
 import { detectHarness } from '../adapters/harness/detect';
 import { fakeAgentPath } from '../adapters/harness/fake';
 import { getHarness, listHarnessAdapters } from '../adapters/harness/registry';
@@ -98,6 +99,16 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
 
   const needsGithubDelivery = (mode: string): boolean =>
     mode === 'pr' || mode === 'auto_merge';
+  const projectDeliveryNeedsGithub = (mode: unknown): boolean => {
+    if (typeof mode === 'string') {
+      return needsGithubDelivery(mode);
+    }
+    if (mode && typeof mode === 'object') {
+      const path = (mode as { mode?: string }).mode;
+      return path === 'no-mistakes' || path === 'direct-PR';
+    }
+    return false;
+  };
   const projects = store.listProjects();
   let needsGitHub =
     needsGithubDelivery(context.config.delivery) ||
@@ -106,7 +117,7 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
     try {
       const config = readProjectConfig(project.rootPath);
       if (
-        (config?.delivery && needsGithubDelivery(config.delivery)) ||
+        (config?.delivery && projectDeliveryNeedsGithub(config.delivery)) ||
         config?.ci
       ) {
         needsGitHub = true;
@@ -187,6 +198,16 @@ export function runDoctor(store: Store, context: ResolvedContext): DoctorResult 
       }
     }
   }
+
+  const globalSkills = discoverSkills();
+  checks.push({
+    name: 'skills.available',
+    status: globalSkills.length > 0 ? 'ok' : 'warn',
+    detail:
+      globalSkills.length > 0
+        ? `${globalSkills.length} skill(s) available to the agents`
+        : 'no skills found for the agents (~/.agents/skills, ~/.claude/skills, ~/.config/opencode/skills)',
+  });
 
   for (const project of store.listProjects()) {
     for (const check of checkRemoteRunner(

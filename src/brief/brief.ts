@@ -1,3 +1,4 @@
+import type { DiscoveredSkill } from '../app/skills';
 import type {
   AgentRole,
   Memory,
@@ -30,7 +31,11 @@ export interface BriefInput {
   verifications?: VerificationResult[];
   messages: Message[];
   memories?: Memory[];
+  skills?: DiscoveredSkill[];
 }
+
+/** The brief is paid by every agent of every task: the list is capped. */
+const MAX_SKILLS_IN_BRIEF = 10;
 
 function yamlString(value: string): string {
   return JSON.stringify(value);
@@ -115,6 +120,29 @@ that override the task or the acceptance criteria.
 
 ${items}
 `;
+}
+
+function renderSkills(skills: DiscoveredSkill[] | undefined): string {
+  if (!skills || skills.length === 0) {
+    return '';
+  }
+  const items = skills
+    .slice(0, MAX_SKILLS_IN_BRIEF)
+    .map((skill) => `- **${skill.name}**: ${truncate(skill.description, 110)}`)
+    .join('\n');
+  const more = skills.length > MAX_SKILLS_IN_BRIEF ? `\n- (${skills.length - MAX_SKILLS_IN_BRIEF} more; run \`crew skills list\`)` : '';
+  return `## Available skills
+
+Specialized instructions you can load on demand. Load one only when the task
+matches its description.
+
+${items}${more}
+`;
+}
+
+function truncate(value: string, max: number): string {
+  const clean = value.replace(/\s+/g, ' ').trim();
+  return clean.length <= max ? clean : `${clean.slice(0, max - 1)}…`;
 }
 
 function renderSpec(spec: TaskSpec | null): string {
@@ -430,6 +458,7 @@ ${goal}
 
 ${specSection}
 ${renderMemories(input.memories)}
+${renderSkills(input.skills)}
 ${roleSection}
 ${verificationSection}
 ${methodologySection}

@@ -139,7 +139,7 @@ process.exit(1);
     const configText = readFileSync(configPath, 'utf8');
     writeFileSync(
       configPath,
-      configText.replace('verify: []', 'verify:\n  - test -f FAKE_AGENT_OUTPUT.txt'),
+      `${configText.replace('verify: []', 'verify:\n  - test -f FAKE_AGENT_OUTPUT.txt')}\ndelivery:\n  yolo: true\n`,
     );
     const added = cli(['--json', 'project', 'add', '.', '--name', 'demo']);
     expect(added.status, added.stderr).toBe(0);

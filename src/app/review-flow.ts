@@ -160,6 +160,11 @@ export async function reviewTask(
     method: options.method ?? 'squash',
     deleteBranch: options.deleteBranch,
     authorizedBy: options.authorizedBy,
+    // The decision in the review buffer IS the captain's word.
+    authorization: {
+      authorizedBy: options.authorizedBy,
+      reason: decision.reason,
+    },
   });
   store.recordReview(task.id, {
     decision: 'accept',

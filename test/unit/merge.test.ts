@@ -122,6 +122,16 @@ function prepareTask(
   }
 }
 
+function authorize(store: Store, taskId: string, authorizedBy = 'captain'): void {
+  store.recordReview(taskId, {
+    decision: 'accept',
+    reason: 'reviewed in the editor',
+    bufferPath: '/tmp/review.md',
+    authorizedBy,
+    diffLines: 12,
+  });
+}
+
 afterEach(() => {
   while (stores.length > 0) {
     stores.pop()?.close();
@@ -129,21 +139,100 @@ afterEach(() => {
 });
 
 describe('evaluateMerge', () => {
-  it('allows the merge when every gate passes', () => {
+  it('allows the merge when every gate passes and the captain authorized', () => {
     const store = createStore();
     const taskId = createTask(store);
     prepareTask(store, taskId, { ci: 'passed' });
+    authorize(store, taskId);
 
     const decision = evaluateMerge(store.getTaskDetail(taskId));
     expect(decision.allowed).toBe(true);
     expect(decision.missing).toEqual([]);
     expect(decision.gates.map((gate) => gate.name)).toContain('CI passed');
+    expect(decision.authority).toBe('captain');
+  });
+
+  it('refuses the merge when nobody authorized it', () => {
+    const store = createStore();
+    const taskId = createTask(store);
+    prepareTask(store, taskId, { ci: 'passed' });
+
+    const decision = evaluateMerge(store.getTaskDetail(taskId));
+    expect(decision.allowed).toBe(false);
+    expect(decision.missing.join(' ')).toContain('merge authority');
+    expect(decision.authority).toBe('captain');
+  });
+
+  it('lets the captain merge on its own when the project grants yolo', () => {
+    const store = createStore();
+    const taskId = createTask(store);
+    prepareTask(store, taskId, { ci: 'passed' });
+
+    const decision = evaluateMerge(store.getTaskDetail(taskId), {
+      projectConfig: { delivery: { mode: 'no-mistakes', yolo: true } },
+    });
+    expect(decision.allowed).toBe(true);
+    expect(decision.yolo).toBe(true);
+    expect(decision.authority).toBe('captain-with-yolo');
+  });
+
+  it('never lets yolo merge a high risk change', () => {
+    const store = createStore();
+    const taskId = createTask(store);
+    prepareTask(store, taskId, { ci: 'passed' });
+    store.recordChangeStats(taskId, {
+      files: 1,
+      additions: 4,
+      deletions: 0,
+      paths: ['src/auth/login.ts'],
+    });
+
+    const decision = evaluateMerge(store.getTaskDetail(taskId), {
+      projectConfig: { delivery: { mode: 'no-mistakes', yolo: true } },
+    });
+    expect(decision.allowed).toBe(false);
+    expect(decision.missing.join(' ')).toContain('risk authorization');
+  });
+
+  it('refuses a merge when CI is configured but no check reported', () => {
+    const store = createStore();
+    const taskId = createTask(store);
+    prepareTask(store, taskId);
+
+    const decision = evaluateMerge(store.getTaskDetail(taskId), {
+      projectConfig: { ci: { provider: 'github_actions' } },
+    });
+    expect(decision.allowed).toBe(false);
+    expect(decision.missing.join(' ')).toContain('CI passed');
+    expect(decision.missing.join(' ')).toContain('no check has reported');
+  });
+
+  it('skips the tester and the verification on the direct-PR path', () => {
+    const store = createStore();
+    const taskId = createTask(store, 'pr');
+    prepareTask(store, taskId, { verification: 'failed', ci: 'passed' });
+    authorize(store, taskId);
+
+    const decision = evaluateMerge(store.getTaskDetail(taskId), {
+      projectConfig: { delivery: { mode: 'direct-PR' } },
+      pr: {
+        url: 'https://example.test/pr/1',
+        state: 'OPEN',
+        merged: false,
+        draft: false,
+        mergeable: 'MERGEABLE',
+      },
+    });
+    expect(decision.path).toBe('direct-PR');
+    expect(decision.gates.map((gate) => gate.name)).not.toContain('tester approved');
+    expect(decision.allowed).toBe(true);
   });
 
   it('blocks the merge when the verification failed', () => {
     const store = createStore();
     const taskId = createTask(store);
     prepareTask(store, taskId, { verification: 'failed' });
+    authorize(store, taskId);
 
     const decision = evaluateMerge(store.getTaskDetail(taskId));
     expect(decision.allowed).toBe(false);
@@ -183,6 +272,7 @@ describe('mergeTask', () => {
       authorizedBy: 'captain',
       skipMerge: true,
       livePr: false,
+      authorization: { authorizedBy: 'captain', reason: 'reviewed' },
     });
 
     expect(outcome.decision.allowed).toBe(true);
@@ -192,6 +282,30 @@ describe('mergeTask', () => {
     const authorization = events.find((event) => event.type === 'task.authorized');
     expect(authorization?.actor).toBe('captain');
     expect(authorization?.payload.action).toBe('merge');
+  });
+
+  it('refuses to merge without a captain authorization', () => {
+    const store = createStore();
+    const taskId = createTask(store);
+    prepareTask(store, taskId);
+
+    let code = '';
+    let message = '';
+    try {
+      mergeTask(store, taskId, {
+        projectRootPath: '/tmp/demo',
+        method: 'squash',
+        authorizedBy: 'captain',
+        skipMerge: true,
+        livePr: false,
+      });
+    } catch (error) {
+      code = error instanceof CrewError ? error.code : 'unknown';
+      message = error instanceof Error ? error.message : '';
+    }
+    expect(code).toBe('MERGE_BLOCKED');
+    expect(message).toContain('merge authority');
+    expect(store.getTaskOrThrow(taskId).state).toBe('review');
   });
 
   it('refuses to merge and explains what is missing', () => {
@@ -208,6 +322,7 @@ describe('mergeTask', () => {
         authorizedBy: 'captain',
         skipMerge: true,
         livePr: false,
+        authorization: { authorizedBy: 'captain', reason: 'reviewed' },
       });
     } catch (error) {
       code = error instanceof CrewError ? error.code : 'unknown';

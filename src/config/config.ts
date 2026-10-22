@@ -246,6 +246,20 @@ export interface ProjectAutoMergeConfig {
   delete_branch?: boolean;
 }
 
+/**
+ * The delivery policy of a project, in the shape firstmate uses: a mode that
+ * owns the technical rigour of the path, and a `yolo` posture that says who
+ * may sign a merge.
+ */
+export type DeliveryPath = 'no-mistakes' | 'direct-PR' | 'local-only';
+
+export interface ProjectDeliveryConfig {
+  mode?: DeliveryPath;
+  yolo?: boolean;
+  method?: MergeMethod;
+  delete_branch?: boolean;
+}
+
 export interface ProjectRunnerConfig {
   host: string;
   ssh_options?: string[];
@@ -264,7 +278,7 @@ export interface ProjectConfig {
   verify_timeout_seconds?: number;
   ci?: ProjectCiConfig;
   auto_merge?: ProjectAutoMergeConfig;
-  delivery?: DeliveryMode;
+  delivery?: DeliveryMode | ProjectDeliveryConfig;
   review?: {
     max_iterations?: number;
   };
@@ -410,14 +424,61 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
       }
     }
     if (parsed.delivery !== undefined) {
-      const delivery = parseDeliveryMode(parsed.delivery);
-      if (!delivery) {
-        throw new CrewError(
-          'PROJECT_CONFIG_INVALID',
-          `Invalid delivery mode in ${configPath}: ${String(parsed.delivery)}`,
-        );
+      if (typeof parsed.delivery === 'string') {
+        const delivery = parseDeliveryMode(parsed.delivery);
+        if (!delivery) {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `Invalid delivery mode in ${configPath}: ${String(parsed.delivery)}`,
+          );
+        }
+        parsed.delivery = delivery;
+      } else {
+        const delivery = parsed.delivery;
+        if (
+          !delivery ||
+          typeof delivery !== 'object' ||
+          Array.isArray(delivery)
+        ) {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `delivery must be a mode or an object in ${configPath}`,
+          );
+        }
+        if (
+          delivery.mode !== undefined &&
+          !['no-mistakes', 'direct-PR', 'local-only'].includes(delivery.mode)
+        ) {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `delivery.mode must be "no-mistakes", "direct-PR" or "local-only" in ${configPath}`,
+          );
+        }
+        if (delivery.yolo !== undefined && typeof delivery.yolo !== 'boolean') {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `delivery.yolo must be a boolean in ${configPath}`,
+          );
+        }
+        if (
+          delivery.method !== undefined &&
+          !['merge', 'squash', 'rebase'].includes(delivery.method)
+        ) {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `delivery.method must be "merge", "squash" or "rebase" in ${configPath}`,
+          );
+        }
+        if (
+          delivery.delete_branch !== undefined &&
+          typeof delivery.delete_branch !== 'boolean'
+        ) {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `delivery.delete_branch must be a boolean in ${configPath}`,
+          );
+        }
       }
-      parsed.delivery = delivery;
     }
     return parsed;
   } catch (error) {

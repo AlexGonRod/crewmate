@@ -86,7 +86,7 @@ describe('fase 3 acceptance demo', () => {
     const configText = readFileSync(configPath, 'utf8');
     writeFileSync(
       configPath,
-      configText.replace('verify: []', 'verify:\n  - test -f FAKE_AGENT_OUTPUT.txt'),
+      `${configText.replace('verify: []', 'verify:\n  - test -f FAKE_AGENT_OUTPUT.txt')}\ndelivery:\n  yolo: true\n`,
     );
     expect(cli(['--json', 'project', 'add', '.', '--name', 'demo']).status).toBe(0);
   });

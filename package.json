@@ -41,6 +41,7 @@
     "dist",
     "contracts",
     "docs",
+    "skills",
     "test/fake-agent",
     "README.md",
     "LICENSE"

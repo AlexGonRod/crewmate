@@ -419,6 +419,58 @@ crew sessions kill <name>
 
 Ver ADR 0023 y ADR 0031.
 
+## La autoridad de merge
+
+Un gate no es "los checks pasan": es **quién tiene la autoridad para firmar**.
+
+```yaml
+# .crew/config.yaml del proyecto
+delivery:
+  mode: no-mistakes      # no-mistakes | direct-PR | local-only
+  yolo: false            # el capitán puede fusionar trabajo verde sin preguntar
+```
+
+- La **ruta** decide la exigencia técnica: `no-mistakes` (verificación +
+  tester + CI + PR), `direct-PR` (PR sin reviewer independiente) o
+  `local-only` (todo el rigor, pero aterrizaje local).
+- La **autoridad** decide quién firma: sin `yolo`, solo una persona; con
+  `yolo`, el capitán fusiona lo verde y en alcance.
+- `yolo` **nunca** autoriza un PR rojo, un check requerido sin reportar ni un
+  cambio de riesgo `high`. Esos tres escalan siempre.
+- La firma de una persona es el artefacto que deja `crew task review`, no una
+  palabra: todo merge pasa por esa puerta y queda registrado.
+
+Ver ADR 0032 y el skill `crew-merge-authority`.
+
+## Skills
+
+Los skills son la capa de procedimientos: cosas que solo aplican en una
+situación concreta y que no tienen sentido pagar en cada sesión.
+
+```sh
+crew --json skills list      # los que ven tus agentes
+crew --json doctor           # avisa si no hay ninguno
+```
+
+El brief de cada agente incluye los skills disponibles (con su descripción
+truncada), para que sepa qué puede cargar. Los del crew se instalan en tu
+proyecto o global:
+
+```sh
+npx skills add AlexGonRod/crewmate --skill crew-review -a opencode
+```
+
+| Skill | Para qué |
+| --- | --- |
+| `crew-review` | revisar una tarea y decidir accept/reject en el editor |
+| `crew-merge-authority` | cuándo fusionar sin preguntar y qué escala siempre |
+| `crew-guidelines` | dónde vive cada hecho y la regla de un solo dueño |
+| `crew-memory` | escribir, corregir y podar la memoria del proyecto |
+| `crew-scout` | cuándo investigar en vez de construir |
+| `stow` | barrer la sesión y archivar lo aprendido (adaptado de firstmate) |
+
+Ver ADR 0033.
+
 ## Revisión en el editor
 
 ```sh
