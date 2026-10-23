@@ -24,6 +24,85 @@ describe('report protocol', () => {
     expect(report.status).toBe('done');
   });
 
+  describe('normalizeReport drops integration noise', () => {
+    it('keeps only the known keys of tests and artifacts items', () => {
+      const normalized = normalizeReport(
+        {
+          schema: 'crew.report/v1',
+          task_id: newId('tsk'),
+          run_id: newId('run'),
+          status: 'done',
+          summary: 'ok',
+          tests: [{ command: 'npm test', status: 'passed', evidence: 'x', notes: 'y' }],
+          artifacts: [{ kind: 'file', ref: 'src/hero.gif', label: 'changed files', extra: 1 }],
+        },
+        {},
+      );
+      expect(validateReport(normalized)).toBeTruthy();
+      const record = normalized as { tests: unknown[]; artifacts: unknown[] };
+      expect(record.tests[0]).toEqual({ command: 'npm test', status: 'passed' });
+      expect(record.artifacts[0]).toEqual({ kind: 'file', ref: 'src/hero.gif', label: 'changed files' });
+    });
+
+    it('wraps bare string questions as objects', () => {
+      const normalized = normalizeReport(
+        {
+          schema: 'crew.report/v1',
+          task_id: newId('tsk'),
+          run_id: newId('run'),
+          status: 'blocked',
+          summary: 'blocked',
+          questions: ['¿A qué hora hay que pedir la paella?'],
+        },
+        {},
+      );
+      const record = validateReport(normalized) as unknown as {
+        questions: { id: string; text: string }[];
+      };
+      expect(record.questions).toEqual([
+        { id: 'q1', text: '¿A qué hora hay que pedir la paella?' },
+      ]);
+    });
+
+    it('keeps role-specific keys of v3 test items', () => {
+      const normalized = normalizeReport(
+        {
+          schema: 'crew.report/v3',
+          task_id: newId('tsk'),
+          run_id: newId('run'),
+          methodology: 'spec',
+          role: 'tester',
+          verdict: 'approve',
+          status: 'done',
+          summary: 'ok',
+          tests: [{ command: 'pytest', status: 'passed', phase: 'green', guess: 'no' }],
+        },
+        { methodology: 'spec', role: 'tester' },
+      );
+      const record = validateReport(normalized) as unknown as {
+        tests: { phase?: string }[];
+      };
+      expect(record.tests[0]).toEqual({ command: 'pytest', status: 'passed', phase: 'green' });
+    });
+
+    it('still rejects reports missing required keys', () => {
+      expect(() =>
+        validateReport(
+          normalizeReport(
+            {
+              schema: 'crew.report/v1',
+              status: 'done',
+              summary: 'ok',
+              tests: [{ status: 'passed', evidence: 'x' }],
+            },
+            {},
+          ),
+        ),
+      ).toThrow('Invalid agent report');
+    });
+  });
+
+
   it('rejects an incomplete report', () => {
     expect(() =>
       validateReport({

@@ -102,7 +102,45 @@ export function normalizeReport(
   if (record.summary === undefined && defaults.summary) {
     record.summary = defaults.summary;
   }
+  sanitizeReportItems(record);
   return record;
+}
+
+/**
+ * Integration harnesses are LLMs: the useful content of a report is stable,
+ * but they keep inventing extra keys. Drop the unknown keys of list items so
+ * a noisy report still passes the schema instead of failing the run.
+ */
+const ITEM_KEYS: Record<string, string[]> = {
+  tests: ['command', 'status', 'phase', 'duration_ms', 'output'],
+  artifacts: ['kind', 'ref', 'label'],
+  questions: ['id', 'text', 'blocking'],
+};
+
+function sanitizeReportItems(record: Record<string, unknown>): void {
+  for (const [key, whitelist] of Object.entries(ITEM_KEYS)) {
+    const items = record[key];
+    if (!Array.isArray(items)) {
+      continue;
+    }
+    const schema = String(record.schema ?? 'crew.report/v1');
+    const allowed =
+      key === 'tests' && schema === 'crew.report/v1'
+        ? whitelist.filter((entry) => entry !== 'phase')
+        : whitelist;
+    record[key] = items.map((item, index) => {
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        const source = item as Record<string, unknown>;
+        return Object.fromEntries(
+          Object.entries(source).filter(([name]) => allowed.includes(name)),
+        );
+      }
+      if (key === 'questions' && typeof item === 'string') {
+        return { id: `q${index + 1}`, text: item };
+      }
+      return item;
+    });
+  }
 }
 
 export function parseReportText(text: string): unknown {
