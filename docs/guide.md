@@ -304,6 +304,7 @@ npx skills add AlexGonRod/crewmate --skill crew-review -a opencode
 | `crew-memory` | escribir, corregir y podar la memoria del proyecto |
 | `crew-scout` | cuándo investigar en vez de construir |
 | `stow` | barrer la sesión y archivar lo aprendido |
+| `herdr` | usar el CLI de Herdr desde una sesión del crew |
 
 ### El `stow`
 
@@ -312,6 +313,18 @@ aprendió y lo archiva donde toca: la memoria del proyecto (convenciones,
 decisiones, trampas), las tareas (lo que queda abierto) o `.stow-notes.md`
 (la reserva privada). Pregunta una vez si el destino es ambiguo y cierra con
 un veredicto honesto de qué se capturó y qué no.
+
+### El `herdr`
+
+Cuando el crew lanza a un agente con `--session herdr` (o `auto` con el
+servidor de Herdr arrancado), el agente vive en un pane y puede usar el CLI
+de Herdr: leer la salida de panes vecinos, esperar a que otro agente termine,
+crear layout. El skill `herdr` (adaptado del de herdrdev/herdr) le enseña
+cómo y le pone los límites del crew: los workspaces `crew-<taskId>-<rol>` no
+se tocan (el motor registra ahí el código de salida), los `herdr agent ...`
+no gobiernan workers del crew y los hallazgos se reportan por el contrato,
+no por el pane. Con `--session tmux` la skill queda inactiva: su gate exige
+`HERDR_ENV=1` y no pasa.
 
 ## 9. Los contratos de rol
 

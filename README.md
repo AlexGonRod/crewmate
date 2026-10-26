@@ -512,6 +512,7 @@ npx skills add AlexGonRod/crewmate --skill crew-review -a opencode
 | `crew-memory` | escribir, corregir y podar la memoria del proyecto |
 | `crew-scout` | cuándo investigar en vez de construir |
 | `stow` | barrer la sesión y archivar lo aprendido (adaptado de firstmate) |
+| `herdr` | usar el CLI de Herdr desde una sesión del crew (adaptado de herdrdev/herdr) |
 
 Ver ADR 0033.
 
