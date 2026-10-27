@@ -57,6 +57,19 @@ Claves que se pueden fijar: `harness`, `timeout_seconds`, `delivery`,
 `review.max_iterations`, `scheduling.concurrency`, `scheduling.mode` y
 `agents.{developer,tester}.{harness,agent,model}`.
 
+Cada rol (`developer`, `tester`, `captain`) puede llevar su propio harness,
+agente y modelo; si no, usa el global:
+
+```sh
+crew config set agents.developer.model openrouter/anthropic/claude-sonnet-5.5 # el modelo del developer
+crew config set agents.tester.harness opencode                              # el harness del tester
+crew config set agents.captain.agent captain                                # el agente del capitán
+crew config set agents.captain.model openrouter/anthropic/claude-sonnet-5.5 # el modelo del capitán
+```
+
+El `harness` es el adaptador (`fake`, `opencode`), `agent` es el nombre del
+agente en ese harness y `model` es el modelo con el que corre.
+
 ---
 
 ## 3. El bucle de trabajo
