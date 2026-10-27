@@ -12,7 +12,8 @@ import type {
 } from '../core/types';
 import { newId } from '../core/ids';
 import type { ResolvedContext } from '../config/config';
-import { readProjectConfig } from '../config/config';
+import { readGlobalConfigFile, readProjectConfig } from '../config/config';
+import { resolveAgentPreset } from '../config/presets';
 import type { Store } from '../store/store';
 import {
   commitWorkspace,
@@ -139,6 +140,23 @@ async function runPipelineLocked(
   }
 
   const projectConfig = readProjectConfig(project.rootPath);
+  // Declarative agent presets (env > project > global), applied where the
+  // pipeline reads agents.<role>. A missing or invalid preset is skipped
+  // with a warning; the run keeps going with the configured agents.
+  const globalPresetRaw = readGlobalConfigFile(context.paths.configDir);
+  const presetResolution = resolveAgentPreset({
+    envPreset: process.env.CREW_PRESET,
+    global: { where: 'global config', layer: { preset: globalPresetRaw.preset, presets: globalPresetRaw.presets } },
+    project: {
+      where: 'project config',
+      layer: { preset: projectConfig?.preset, presets: projectConfig?.presets },
+    },
+    agents: context.config.agents,
+  });
+  for (const warning of presetResolution.warnings) {
+    console.error(`warning: ${warning}`);
+  }
+  const presetAgents = presetResolution.agents;
   const maxIterations =
     options.maxIterations ??
     projectConfig?.review?.max_iterations ??
@@ -158,12 +176,12 @@ async function runPipelineLocked(
   const verifyCommands = isScout ? [] : verificationCommands(projectConfig, task);
   const developerHarnessId =
     options.developerHarnessId ??
-    context.config.agents.developer.harness ??
+    presetAgents.developer.harness ??
     task.harnessId ??
     context.config.harness;
   const testerHarnessId =
     options.testerHarnessId ??
-    context.config.agents.tester.harness ??
+    presetAgents.tester.harness ??
     task.harnessId ??
     context.config.harness;
   let forge: ReturnType<typeof getForge> | null = null;
@@ -197,11 +215,11 @@ async function runPipelineLocked(
   }
 
   const developerAgent =
-    options.developerAgent ?? context.config.agents.developer.agent;
+    options.developerAgent ?? presetAgents.developer.agent;
   const developerModel =
-    options.developerModel ?? context.config.agents.developer.model;
-  const testerAgent = options.testerAgent ?? context.config.agents.tester.agent;
-  const testerModel = options.testerModel ?? context.config.agents.tester.model;
+    options.developerModel ?? presetAgents.developer.model;
+  const testerAgent = options.testerAgent ?? presetAgents.tester.agent;
+  const testerModel = options.testerModel ?? presetAgents.tester.model;
 
   const base = {
     timeoutSeconds: options.timeoutSeconds,

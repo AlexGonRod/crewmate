@@ -298,6 +298,10 @@ export interface ProjectConfig {
     extra_blocked_paths?: string[];
     disable_default_patterns?: boolean;
   };
+  /** Selected agent preset name (see src/config/presets.ts). */
+  preset?: string;
+  /** Named agent preset definitions. */
+  presets?: Record<string, unknown>;
 }
 
 export function projectConfigPath(rootPath: string): string {
@@ -382,6 +386,20 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
         }
         parsed.hygiene.extra_blocked_paths =
           parsed.hygiene.extra_blocked_paths.map((blocked) => blocked.trim());
+      }
+    }
+    if (parsed.preset !== undefined && typeof parsed.preset !== 'string') {
+      throw new CrewError(
+        'PROJECT_CONFIG_INVALID',
+        `preset must be a string in ${configPath}`,
+      );
+    }
+    if (parsed.presets !== undefined) {
+      if (!parsed.presets || typeof parsed.presets !== 'object' || Array.isArray(parsed.presets)) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `presets must be a map of presets in ${configPath}`,
+        );
       }
     }
     if (parsed.ci !== undefined) {

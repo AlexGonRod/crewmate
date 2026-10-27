@@ -70,6 +70,53 @@ crew config set agents.captain.model openrouter/anthropic/claude-sonnet-5.5 # el
 El `harness` es el adaptador (`fake`, `opencode`), `agent` es el nombre del
 agente en ese harness y `model` es el modelo con el que corre.
 
+### Presets de agentes (declarativos)
+
+Un preset agrupa, con un nombre, los overrides por rol, para que puedas
+cambiar de "combo" de agentes sin editar el YAML a mano cada vez. Se escribe
+directo en el `config.yaml` global o en el `.crew/config.yaml` del proyecto:
+
+```yaml
+# ~/.config/crew/config.yaml  (o .crew/config.yaml del proyecto)
+preset: cheap          # qué preset está activo
+presets:
+  cheap:
+    agents:
+      developer:
+        harness: opencode
+        model: opencode/glm-5.3-flash-free
+      tester:
+        harness: opencode
+        model: opencode/glm-5.3-flash-free
+  premium:
+    extends: cheap     # hereda y puede sobrescribir campo a campo
+    agents:
+      developer:
+        model: openrouter/anthropic/claude-sonnet-5.5
+```
+
+Reglas:
+
+- `preset: <nombre>` selecciona el preset activo. La precedencia es
+  **CREW_PRESET (variable de entorno) > `preset` del proyecto > `preset` de
+  global**. Sin selección, el comportamiento es exactamente el de hoy.
+- El preset activo se aplica campo a campo sobre los `agents.<rol>.*` ya
+  configurados: sobrescribe lo que defina y respeta lo que no toque
+  (`crew config set` gana en los campos que el preset no menciona).
+- `extends: <otro-preset>` hereda del preset base y el hijo gana campo a
+  campo (también cadenas de extends y `extends` entre capas: si dos capas
+  definen el mismo nombre, gana el del proyecto).
+- Un preset que no existe o es inválido (no es objeto, `extends` roto o en
+  bucle) se omite entero con un aviso por stderr: el run sigue con la
+  configuración actual, nunca se tumba.
+
+```sh
+CREW_PRESET=premium crew task queue <id>   # fuerza el preset de env
+```
+
+Los presets se aplican en el mismo punto donde el pipeline lee
+`agents.<rol>.{harness,agent,model}`.
+
 ---
 
 ## 3. El bucle de trabajo
