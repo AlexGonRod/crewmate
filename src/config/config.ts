@@ -7,6 +7,7 @@ import type {
   DeliveryMode,
   MergeMethod,
   Methodology,
+  ReviewRouteMode,
 } from '../core/types';
 import { parseMethodology } from '../spec/spec';
 import { ensurePaths, resolvePaths, type CrewPaths } from './paths';
@@ -19,6 +20,9 @@ export interface AgentConfig {
 
 export interface ReviewConfig {
   maxIterations: number;
+  /** 'full' always runs the independent tester (default); 'proportionate'
+   *  skips it for low-risk changes with a green verification (ADR 0040). */
+  mode: ReviewRouteMode;
 }
 
 export type SchedulingMode = 'serial' | 'parallel';
@@ -56,6 +60,7 @@ const DEFAULT_CONFIG: CrewConfig = {
   },
   review: {
     maxIterations: 3,
+    mode: 'full',
   },
   delivery: 'local',
   scheduling: {
@@ -84,6 +89,14 @@ function parseDeliveryMode(value: unknown): DeliveryMode | undefined {
   }
   return DELIVERY_MODES.includes(value as DeliveryMode)
     ? (value as DeliveryMode)
+    : undefined;
+}
+
+const REVIEW_MODES: ReviewRouteMode[] = ['full', 'proportionate'];
+
+export function parseReviewMode(value: unknown): ReviewRouteMode | undefined {
+  return typeof value === 'string' && REVIEW_MODES.includes(value as ReviewRouteMode)
+    ? (value as ReviewRouteMode)
     : undefined;
 }
 
@@ -118,6 +131,14 @@ function readGlobalConfig(configDir: string): Partial<CrewConfig> {
       if (typeof review.max_iterations === 'number') {
         result.review = {
           maxIterations: review.max_iterations,
+          mode: DEFAULT_CONFIG.review.mode,
+        };
+      }
+      const mode = parseReviewMode(review.mode);
+      if (mode) {
+        result.review = {
+          maxIterations: result.review?.maxIterations ?? DEFAULT_CONFIG.review.maxIterations,
+          mode,
         };
       }
     }
@@ -291,6 +312,12 @@ export interface ProjectConfig {
   delivery?: DeliveryMode | ProjectDeliveryConfig;
   review?: {
     max_iterations?: number;
+    /**
+     * How the independent tester is routed (see docs/adr/0040-proportionate-review.md):
+     * 'full' (default) always runs it; 'proportionate' skips it when the
+     * pre-commit risk is low and the verification is green.
+     */
+    mode?: ReviewRouteMode;
   };
   runner?: ProjectRunnerConfig;
   hygiene?: {
@@ -387,6 +414,22 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
         parsed.hygiene.extra_blocked_paths =
           parsed.hygiene.extra_blocked_paths.map((blocked) => blocked.trim());
       }
+    }
+    if (parsed.review !== undefined) {
+      if (!parsed.review || typeof parsed.review !== 'object' || Array.isArray(parsed.review)) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `review must be an object in ${configPath}`,
+        );
+      }
+      const mode = parseReviewMode(parsed.review.mode);
+      if (parsed.review.mode !== undefined && !mode) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `review.mode must be "full" or "proportionate" in ${configPath}`,
+        );
+      }
+      parsed.review.mode = mode;
     }
     if (parsed.preset !== undefined && typeof parsed.preset !== 'string') {
       throw new CrewError(

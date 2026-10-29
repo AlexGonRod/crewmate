@@ -170,12 +170,22 @@ export function evaluateMerge(
   const fullPipeline = pathRequiresFullPipeline(policy.path);
 
   if (fullPipeline) {
-    const testerApproved = summary.tester?.verdict === 'approve';
+    // ADR 0040: the proportionate policy may have skipped the tester. The
+    // waiver holds only when the route was recorded as skipped *and* the
+    // final risk (computed from the recorded change) is still low; unknown
+    // or raised risk keeps the requirement.
+    const testerWaivedByRoute =
+      summary.reviewRoute?.route === 'skipped' &&
+      (summary.risk?.level ?? 'high') === 'low';
+    const testerApproved =
+      summary.tester?.verdict === 'approve' || testerWaivedByRoute;
     gates.push({
       name: 'tester approved',
       ok: testerApproved,
       detail: testerApproved
-        ? 'verdict approve'
+        ? summary.tester?.verdict === 'approve'
+          ? 'verdict approve'
+          : 'tester skipped under the proportionate policy (low pre-commit risk)'
         : 'the tester has not approved the change',
     });
 

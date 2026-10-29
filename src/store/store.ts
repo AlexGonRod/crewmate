@@ -31,6 +31,9 @@ import type {
   Report,
   ReportPayload,
   ReportStatus,
+  ReviewRoute,
+  ReviewRouteMode,
+  RiskAssessment,
   Run,
   RunState,
   Task,
@@ -1965,6 +1968,124 @@ export class Store {
       });
       return this.getTaskOrThrow(taskId);
     });
+  }
+
+  recordReviewRoute(
+    taskId: string,
+    input: {
+      route: ReviewRoute;
+      reason: string;
+      mode: ReviewRouteMode;
+      risk: RiskAssessment | null;
+    },
+  ): Task {
+    return this.transaction(() => {
+      const task = this.getTaskOrThrow(taskId);
+      const createdAt = nowIso();
+      const metadata = {
+        route: input.route,
+        reason: input.reason,
+        mode: input.mode,
+        risk: input.risk
+          ? { level: input.risk.level, score: input.risk.score, reasons: input.risk.reasons }
+          : null,
+      };
+      this.db
+        .prepare(
+          `INSERT INTO artifacts (id, task_id, run_id, kind, ref, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          newId('art'),
+          task.id,
+          null,
+          'review_route',
+          input.route === 'skipped'
+            ? `tester skipped: ${input.reason}`
+            : `tester runs: ${input.reason}`,
+          JSON.stringify(metadata),
+          createdAt,
+        );
+      this.appendEvent({
+        aggregateType: 'task',
+        aggregateId: task.id,
+        taskId: task.id,
+        type: 'review.routed',
+        payload: {
+          route: input.route,
+          reason: input.reason,
+          mode: input.mode,
+          risk_level: input.risk?.level ?? null,
+          risk_score: input.risk?.score ?? null,
+          risk_reasons: input.risk?.reasons ?? [],
+        },
+      });
+      return this.getTaskOrThrow(task.id);
+    });
+  }
+
+  /**
+   * Aggregate route and run metrics over the whole engine (ADR 0040): how
+   * many tester routes were taken or skipped, how many tester runs were
+   * saved by the proportional policy, and the average duration of developer
+   * and tester runs.
+   */
+  reviewMetrics(): {
+    routes: { tester: number; skipped: number };
+    testerRunsSaved: number;
+    avgRunDurationMs: { developer: number | null; tester: number | null };
+  } {
+    // Only the last route of each task counts: intervening routes belong to
+    // rejected attempts that had their own developer work.
+    const sameRows = this.db
+      .prepare(
+        `SELECT a.task_id AS task_id, a.metadata_json AS metadata_json
+         FROM artifacts a
+         WHERE a.kind = 'review_route'
+           AND a.id = (
+             SELECT b.id FROM artifacts b
+             WHERE b.kind = 'review_route' AND b.task_id = a.task_id
+             ORDER BY b.rowid DESC LIMIT 1
+           )`,
+      )
+      .all() as unknown as Array<{ task_id: string; metadata_json: string | null }>;
+    const routes = { tester: 0, skipped: 0 };
+    for (const row of sameRows) {
+      if (!row.metadata_json) {
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(row.metadata_json) as { route?: string };
+        if (parsed.route === 'skipped') {
+          routes.skipped += 1;
+        } else if (parsed.route === 'tester') {
+          routes.tester += 1;
+        }
+      } catch {
+        // Unreadable metadata does not block the metrics.
+      }
+    }
+    const duration = (role: 'developer' | 'tester'): number | null => {
+      const rows = this.db
+        .prepare(
+          `SELECT started_at, ended_at FROM runs WHERE role = ? AND ended_at IS NOT NULL`,
+        )
+        .all(role) as unknown as Array<{ started_at: string; ended_at: string }>;
+      if (rows.length === 0) {
+        return null;
+      }
+      const total = rows.reduce((accumulator, row) => {
+        const start = Date.parse(row.started_at);
+        const end = Date.parse(row.ended_at);
+        return accumulator + (Number.isFinite(start) && Number.isFinite(end) ? end - start : 0);
+      }, 0);
+      return Math.round(total / rows.length);
+    };
+    return {
+      routes,
+      testerRunsSaved: routes.skipped,
+      avgRunDurationMs: { developer: duration('developer'), tester: duration('tester') },
+    };
   }
 
   recordReview(

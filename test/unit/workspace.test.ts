@@ -18,6 +18,7 @@ import {
   describeTaskLocation,
   diffStatsWorkspace,
   ensureWorkspace,
+  estimateWorktreeStats,
   LocalWorkspace,
   pushWorkspace,
   RemoteWorkspace,
@@ -145,8 +146,49 @@ describe('workspace resolution', () => {
   });
 });
 
+describe('worktree estimate before the commit', () => {
+  it('counts tracked changes and untracked files against the base branch', () => {
+    const dir = tempDir();
+    const repo = makeRepo(dir);
+    const workspace = new LocalWorkspace(repo, path.join(dir, 'worktrees', 'tsk_1'));
+    ensureWorkspace(workspace, { branch: 'crew/tsk_1', baseBranch: 'main' });
+
+    writeFileSync(path.join(workspace.worktreePath, 'README.md'), '# demo\n# more\n');
+    writeFileSync(path.join(workspace.worktreePath, 'new.txt'), 'one\ntwo\nthree\n');
+
+    const estimate = estimateWorktreeStats(workspace, 'main');
+    expect(estimate).not.toBe(null);
+    expect(estimate?.complete).toBe(true);
+    expect(estimate?.stats.files).toBe(2);
+    expect(estimate?.stats.additions).toBe(4);
+    expect(estimate?.stats.deletions).toBe(0);
+    expect(estimate?.stats.paths.sort()).toEqual(['README.md', 'new.txt']);
+  });
+
+  it('marks the estimate incomplete for unreadable or binary files', () => {
+    const dir = tempDir();
+    const repo = makeRepo(dir);
+    const workspace = new LocalWorkspace(repo, path.join(dir, 'worktrees', 'tsk_1'));
+    ensureWorkspace(workspace, { branch: 'crew/tsk_1', baseBranch: 'main' });
+
+    writeFileSync(path.join(workspace.worktreePath, 'logo.png'), Buffer.from([0x89, 0x50, 0x00, 0x4e]));
+    const estimate = estimateWorktreeStats(workspace, 'main');
+    expect(estimate?.complete).toBe(false);
+    expect(estimate?.stats.paths).toContain('logo.png');
+  });
+
+  it('returns null when the base branch is unknown (fail closed)', () => {
+    const dir = tempDir();
+    const repo = makeRepo(dir);
+    const workspace = new LocalWorkspace(repo, path.join(dir, 'worktrees', 'tsk_1'));
+    ensureWorkspace(workspace, { branch: 'crew/tsk_1', baseBranch: 'main' });
+    expect(estimateWorktreeStats(workspace, 'no-such-branch')).toBe(null);
+  });
+});
+
 describe('local workspace', () => {
   it('creates, commits and removes a worktree', () => {
+
     const dir = tempDir();
     const repo = makeRepo(dir);
     const workspace = new LocalWorkspace(repo, path.join(dir, 'worktrees', 'tsk_1'));

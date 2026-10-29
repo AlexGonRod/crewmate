@@ -11,6 +11,9 @@ import type {
 import { describeTaskLocation } from './workspace';
 import { assessRisk } from '../risk/risk';
 
+/** Advisory threshold for an oversized delivery (ADR 0042). */
+const OVERSIZED_CHANGE_LINES = 400;
+
 function latestArtifact<T>(detail: TaskDetail, kind: string): T | null {
   const artifacts = detail.artifacts.filter((artifact) => artifact.kind === kind);
   const artifact = artifacts.at(-1);
@@ -98,6 +101,22 @@ export function summarizeDetail(
       })
     : null;
 
+  const reviewRoute = latestArtifact<{ route?: string; reason?: string }>(
+    detail,
+    'review_route',
+  );
+  const advisories: string[] = [];
+  if (change) {
+    const churn = change.additions + change.deletions;
+    if (churn > OVERSIZED_CHANGE_LINES) {
+      advisories.push(
+        `oversized change: +${change.additions}/-${change.deletions} over ${change.files} file(s) ` +
+          `(advisory: prefer work units of about ${OVERSIZED_CHANGE_LINES} authored lines; ` +
+          'see docs/adr/0042-delivery-sizing-advisory.md)',
+      );
+    }
+  }
+
   return {
     taskId: task.id,
     title: task.title,
@@ -119,6 +138,17 @@ export function summarizeDetail(
         }
       : null,
     tester,
+    reviewRoute:
+      reviewRoute && (reviewRoute.route === 'skipped' || reviewRoute.route === 'tester')
+        ? {
+            route: reviewRoute.route,
+            reason:
+              typeof reviewRoute.reason === 'string' && reviewRoute.reason.length > 0
+                ? reviewRoute.reason
+                : 'unrecorded reason',
+          }
+        : null,
+    advisories,
     pr,
     scout: scoutArtifact
       ? {

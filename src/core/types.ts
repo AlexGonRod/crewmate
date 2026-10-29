@@ -23,6 +23,13 @@ export type AgentRole = 'developer' | 'tester' | 'captain';
 
 export type PipelineStage = 'develop' | 'test' | 'git' | 'review';
 
+/** How the tester stage is routed: `full` always runs the tester;
+ *  `proportionate` skips it for low-risk changes with green verification. */
+export type ReviewRouteMode = 'full' | 'proportionate';
+
+/** The decision the engine made about the independent tester for a task. */
+export type ReviewRoute = 'tester' | 'skipped';
+
 export type ReportVerdict = 'approve' | 'reject';
 
 export type FindingSeverity = 'blocking' | 'warning' | 'info';
@@ -110,6 +117,15 @@ export interface TaskSummary {
     warnings: number;
     summary: string;
   } | null;
+  /** How the engine routed the independent tester (recorded in
+   *  `docs/adr/0040-proportionate-review.md`). */
+  reviewRoute: {
+    route: ReviewRoute;
+    reason: string;
+  } | null;
+  /** Non-blocking observations a reviewer should know about (e.g. an
+   *  oversized change; see docs/adr/0042-delivery-sizing-advisory.md). */
+  advisories: string[];
   pr: {
     url: string;
     state: 'open' | 'merged' | 'merge_failed' | 'unknown';

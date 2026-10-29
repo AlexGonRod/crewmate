@@ -354,6 +354,94 @@ export function diffStatsWorkspace(
   return { files: paths.length, additions, deletions, paths };
 }
 
+/**
+ * Estimates the change stats of the worktree before the commit (ADR 0040).
+ *
+ * `diffStatsWorkspace` measures `base...HEAD`, so it needs the commit; it
+ * runs after it (ADR 0013). The proportional review needs the same numbers
+ * before the tester stage, so this function measures the base branch against
+ * the working tree and counts the lines of untracked files. It never stages
+ * or modifies anything.
+ *
+ * `complete` is false when the estimate could not cover every change: then
+ * the proportional review must treat the risk as unknown and run the tester.
+ */
+export interface WorktreeEstimate {
+  stats: ChangeStats;
+  complete: boolean;
+}
+
+const ESTIMATE_MAX_UNTRACKED_FILES = 200;
+const ESTIMATE_MAX_FILE_BYTES = 512 * 1024;
+
+export function estimateWorktreeStats(
+  workspace: Workspace,
+  baseBranch: string,
+): WorktreeEstimate | null {
+  // One ref: base tree against the working tree, uncommitted changes included.
+  const tracked = workspace.git(
+    ['diff', '--numstat', baseBranch],
+    workspace.worktreePath,
+  );
+  if (tracked.status !== 0) {
+    return null;
+  }
+
+  const paths: string[] = [];
+  let additions = 0;
+  let deletions = 0;
+  for (const line of tracked.stdout.split('\n')) {
+    if (!line.trim()) {
+      continue;
+    }
+    const parts = line.split('\t');
+    if (parts.length < 3) {
+      continue;
+    }
+    const added = Number(parts[0]);
+    const removed = Number(parts[1]);
+    if (Number.isFinite(added)) {
+      additions += added;
+    }
+    if (Number.isFinite(removed)) {
+      deletions += removed;
+    }
+    paths.push(parts.slice(2).join('\t'));
+  }
+
+  const untracked = workspace.git(
+    ['ls-files', '--others', '--exclude-standard', '-z'],
+    workspace.worktreePath,
+  );
+  let complete = untracked.status === 0;
+  if (complete) {
+    const files = untracked.stdout.split('\0').filter((entry) => entry.trim().length > 0);
+    if (files.length > ESTIMATE_MAX_UNTRACKED_FILES) {
+      complete = false;
+    }
+    for (const file of files) {
+      paths.push(file);
+      const content = workspace.readFile(`${workspace.worktreePath}/${file}`);
+      if (content === null) {
+        complete = false;
+        continue;
+      }
+      if (content.length > ESTIMATE_MAX_FILE_BYTES) {
+        complete = false;
+        continue;
+      }
+      if (content.slice(0, 8192).includes('\u0000')) {
+        // Binary content: the line count would be meaningless.
+        complete = false;
+        continue;
+      }
+      additions += (content.match(/\n/g) ?? []).length;
+    }
+  }
+
+  return { stats: { files: paths.length, additions, deletions, paths }, complete };
+}
+
 export function pushWorkspace(workspace: Workspace, branch: string): void {
   workspace.gitOrThrow(
     ['push', '--set-upstream', 'origin', branch],

@@ -297,6 +297,18 @@ switch (scenario) {
     });
     break;
   }
+  case 'success_wide': {
+    writeMarker('fake agent success wide\n');
+    // Enough untracked files to clear the "more than 5 files" risk signal
+    // (ADR 0013): the proportionate policy must keep the tester.
+    for (let index = 0; index < 8; index += 1) {
+      writeFileSync(path.join(worktree, `wide_${index}.txt`), `change ${index}\n`);
+    }
+    writeReport('done', 'Fake agent completed a wide task', {
+      tests: [{ command: 'fake-test', status: 'passed' }],
+    });
+    break;
+  }
   case 'success_with_secrets': {
     writeMarker('fake agent success\n');
     writeFileSync(

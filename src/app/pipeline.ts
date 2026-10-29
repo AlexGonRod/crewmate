@@ -6,6 +6,7 @@ import type {
   MergeResult,
   PipelineStage,
   Report,
+  ReviewRouteMode,
   Run,
   Task,
   VerificationResult,
@@ -18,10 +19,12 @@ import type { Store } from '../store/store';
 import {
   commitWorkspace,
   diffStatsWorkspace,
+  estimateWorktreeStats,
   pushWorkspace,
 } from './workspace';
 import { isRetryableError } from './retry';
 import { assessRisk } from '../risk/risk';
+import { planReviewRoute, type ReviewRoutePlan } from '../risk/review-route';
 import { resolveDeliveryPolicy } from './delivery';
 import { getForge } from '../forges';
 import {
@@ -82,6 +85,9 @@ export interface PipelineResult {
   merge: MergeResult | null;
   commitSha: string | null;
   prUrl: string | null;
+  /** The tester-route decision, when the engine made one under a
+   *  proportionate review policy (ADR 0040). */
+  reviewRoute?: ReviewRoutePlan | null;
   error?: string;
 }
 
@@ -394,66 +400,100 @@ async function runPipelineLocked(
       }
     }
 
-    const tester = await runStage(store, context, {
-      ...base,
-      taskId: task.id,
-      harnessId: testerHarnessId,
-      role: 'tester',
-      stage: 'test',
-      continuePipeline: true,
-      keepTaskRunning: true,
-      developerReportPath,
-      verifications,
-      verifyCommands,
-      agent: testerAgent,
-      model: testerModel,
-      signal: options.signal,
-    });
-    task = tester.task;
-    testerReport = tester.report;
-
-    if (task.state !== 'running') {
-      return {
-        task,
-        outcome: outcomeFor(task),
-        stage: task.stage,
-        runs: store.listRuns(task.id),
-        report: tester.report,
-        developerReport,
-        testerReport,
+    // ADR 0040: under the proportionate policy the engine decides whether a
+    // task needs the independent tester. The decision uses only the objective
+    // signals available before the commit (the worktree diff and the
+    // deterministic verification); anything unknown keeps the tester.
+    const reviewMode: ReviewRouteMode =
+      projectConfig?.review?.mode ?? 'full';
+    let reviewRoute: ReviewRoutePlan | null = null;
+    if (reviewMode === 'proportionate') {
+      const estimate =
+        verifyCommands.length > 0
+          ? estimateWorktreeStats(workspace, task.baseBranch)
+          : null;
+      const preRisk = estimate
+        ? assessRisk({ change: estimate.stats, verifications })
+        : null;
+      reviewRoute = planReviewRoute({
+        mode: reviewMode,
+        verifyCommands,
         verifications,
-        ci: null,
-        merge: null,
-        commitSha: task.commitSha,
-        prUrl: task.prUrl,
-      };
+        preRisk,
+        estimateComplete: estimate?.complete ?? false,
+      });
+      task = store.recordReviewRoute(task.id, {
+        route: reviewRoute.route,
+        reason: reviewRoute.reason,
+        mode: reviewMode,
+        risk: preRisk,
+      });
     }
 
-    if (!tester.report || tester.report.payload.verdict !== 'approve') {
-      if (tester.report?.payload.verdict === 'reject') {
-        const feedback = rejectFeedback(tester.report);
-        task = store.rejectReview(task.id, feedback, maxIterations);
-      } else {
-        task = store.applyReportOutcome(
-          task.id,
-          tester.report?.status ?? 'failed',
-          tester.report?.summary,
-        );
-      }
-      return {
-        task,
-        outcome: outcomeFor(task),
-        stage: task.stage,
-        runs: store.listRuns(task.id),
-        report: tester.report,
-        developerReport,
-        testerReport,
+    if (reviewRoute?.route !== 'skipped') {
+      const tester = await runStage(store, context, {
+        ...base,
+        taskId: task.id,
+        harnessId: testerHarnessId,
+        role: 'tester',
+        stage: 'test',
+        continuePipeline: true,
+        keepTaskRunning: true,
+        developerReportPath,
         verifications,
-        ci: null,
-        merge: null,
-        commitSha: task.commitSha,
-        prUrl: task.prUrl,
-      };
+        verifyCommands,
+        agent: testerAgent,
+        model: testerModel,
+        signal: options.signal,
+      });
+      task = tester.task;
+      testerReport = tester.report;
+
+      if (task.state !== 'running') {
+        return {
+          task,
+          outcome: outcomeFor(task),
+          stage: task.stage,
+          runs: store.listRuns(task.id),
+          report: testerReport ?? developerReport,
+          developerReport,
+          testerReport,
+          verifications,
+          ci: null,
+          merge: null,
+          commitSha: task.commitSha,
+          prUrl: task.prUrl,
+          reviewRoute,
+        };
+      }
+
+      if (!testerReport || testerReport.payload.verdict !== 'approve') {
+        if (testerReport?.payload.verdict === 'reject') {
+          const feedback = rejectFeedback(testerReport);
+          task = store.rejectReview(task.id, feedback, maxIterations);
+        } else {
+          task = store.applyReportOutcome(
+            task.id,
+            testerReport?.status ?? 'failed',
+            testerReport?.summary,
+          );
+        }
+        return {
+          task,
+          outcome: outcomeFor(task),
+          stage: task.stage,
+          runs: store.listRuns(task.id),
+          report: testerReport ?? developerReport,
+          developerReport,
+          testerReport,
+          verifications,
+          ci: null,
+          merge: null,
+          commitSha: task.commitSha,
+          prUrl: task.prUrl,
+          reviewRoute,
+        };
+      }
     }
 
     if (options.signal?.aborted) {
@@ -475,7 +515,7 @@ async function runPipelineLocked(
           outcome: outcomeFor(task),
           stage: task.stage,
           runs: store.listRuns(task.id),
-          report: tester.report,
+          report: testerReport ?? developerReport,
           developerReport,
           testerReport,
           verifications,
@@ -483,6 +523,7 @@ async function runPipelineLocked(
           merge: null,
           commitSha: task.commitSha,
           prUrl: task.prUrl,
+          reviewRoute,
         };
       }
     }
@@ -532,7 +573,7 @@ async function runPipelineLocked(
             outcome: 'failed',
             stage: task.stage,
             runs: store.listRuns(task.id),
-            report: tester.report,
+            report: testerReport ?? developerReport,
             developerReport,
             testerReport,
             verifications,
@@ -540,6 +581,7 @@ async function runPipelineLocked(
             merge: null,
             commitSha: task.commitSha,
             prUrl: task.prUrl,
+            reviewRoute,
           };
         }
       }
@@ -592,7 +634,10 @@ async function runPipelineLocked(
             state: 'merged',
             method,
             actor: 'crew',
-            reason: 'policy satisfied: verification, tester and CI passed',
+            reason:
+              testerReport !== null
+                ? 'policy satisfied: verification, tester and CI passed'
+                : 'policy satisfied: verification and CI passed; the tester was skipped under the proportionate review policy',
             url: pullRequest.url,
             deleteBranch,
           };
@@ -624,7 +669,7 @@ async function runPipelineLocked(
           outcome: outcomeFor(task),
           stage: task.stage,
           runs: store.listRuns(task.id),
-          report: tester.report,
+          report: testerReport ?? developerReport,
           developerReport,
           testerReport,
           verifications,
@@ -632,6 +677,7 @@ async function runPipelineLocked(
           merge,
           commitSha: task.commitSha,
           prUrl: task.prUrl,
+          reviewRoute,
         };
       }
     }
@@ -642,7 +688,7 @@ async function runPipelineLocked(
       outcome: 'review',
       stage: task.stage,
       runs: store.listRuns(task.id),
-      report: tester.report,
+      report: testerReport ?? developerReport,
       developerReport,
       testerReport,
       verifications,
@@ -650,6 +696,7 @@ async function runPipelineLocked(
       merge,
       commitSha: task.commitSha,
       prUrl: task.prUrl,
+      reviewRoute,
     };
   } catch (error) {
     const message = errorMessage(error);

@@ -32,7 +32,7 @@ function context(): ResolvedContext {
       harness: 'fake',
       timeoutSeconds: 60,
       agents: { developer: {}, tester: {}, captain: {} },
-      review: { maxIterations: 3 },
+      review: { maxIterations: 3, mode: 'full' },
       delivery: 'local',
       scheduling: { concurrency: 1, mode: 'serial' },
     },

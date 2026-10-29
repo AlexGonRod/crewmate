@@ -363,6 +363,14 @@ function renderTaskDetail(
       `Tester:    ${summary.tester.verdict ?? summary.tester.status} - ${summary.tester.findings} finding(s), ${summary.tester.blocking} blocking`,
     );
   }
+  if (summary.reviewRoute) {
+    console.log(
+      `Route:     tester ${summary.reviewRoute.route === 'skipped' ? 'skipped' : 'runs'} - ${summary.reviewRoute.reason}`,
+    );
+  }
+  for (const advisory of summary.advisories) {
+    console.log(`Advisory:  ${advisory}`);
+  }
   if (task.requestText) {
     console.log(`Request:   ${task.requestText}`);
   }
@@ -2787,6 +2795,27 @@ function buildProgram(): Command {
       if (options.open) {
         openInEditor(guidePath);
       }
+    });
+
+  program
+    .command('metrics')
+    .description('route and run metrics over the whole engine (ADR 0040)')
+    .action(async () => {
+      const metrics = await withStore((store) => store.reviewMetrics());
+      if (globalOptions().json) {
+        printJson(metrics);
+        return;
+      }
+      const tested = metrics.routes.tester;
+      const skipped = metrics.routes.skipped;
+      console.log(`Review routes: ${tested + skipped} task(s) with a decision`);
+      console.log(`  tester runs: ${tested}`);
+      console.log(`  tester skipped (low pre-commit risk): ${skipped}`);
+      console.log(`Tester runs saved by the proportionate policy: ${metrics.testerRunsSaved}`);
+      console.log(
+        `Average run duration: developer ${metrics.avgRunDurationMs.developer ?? 'no data'} ms, ` +
+          `tester ${metrics.avgRunDurationMs.tester ?? 'no data'} ms`,
+      );
     });
 
   program
