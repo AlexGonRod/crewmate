@@ -203,3 +203,40 @@ describe('the request as the person asked it', () => {
     expect(brief).not.toContain('## Request (as the person asked it)');
   });
 });
+
+describe('the spec as the source of truth', () => {
+  it('names the spec file as the authority for every role', () => {
+    const developer = makeBrief(makeTask('spec', spec));
+    const tester = makeBrief(makeTask('spec', spec), { role: 'tester' });
+    for (const brief of [developer, tester]) {
+      expect(brief).toContain('## Source of truth');
+      expect(brief).toContain('**/tmp/worktree/.crew/spec.json**');
+      expect(brief).toContain('the source wins');
+    }
+  });
+
+  it('says the request text is the authority when there is no spec', () => {
+    const brief = makeBrief(makeTask('free', null));
+    expect(brief).toContain('## Source of truth');
+    expect(brief).toContain('The task has no spec file');
+  });
+
+  it('close the source-of-truth section before the goal', () => {
+    const brief = makeBrief(makeTask('spec', spec));
+    expect(brief.indexOf('## Source of truth')).toBeLessThan(brief.indexOf('## Goal'));
+  });
+});
+
+describe('the delivery sizing advisory', () => {
+  it('advises the developer about reviewable work units', () => {
+    const brief = makeBrief(makeTask('free', null));
+    expect(brief).toContain('## Delivery sizing (advisory)');
+    expect(brief).toContain('400 authored changed lines');
+    expect(brief).toContain('never split, shrink, minify or drop');
+  });
+
+  it('does not advise the tester', () => {
+    const brief = makeBrief(makeTask('spec', spec), { role: 'tester' });
+    expect(brief).not.toContain('## Delivery sizing (advisory)');
+  });
+});

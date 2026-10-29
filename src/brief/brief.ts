@@ -158,6 +158,33 @@ ${renderAcceptance(spec)}
 ${renderList('Non-goals', spec.non_goals)}${renderList('Constraints', spec.constraints)}`;
 }
 
+/**
+ * The brief is a projection, not the source of truth (docs/adr/0041-brief-spec-by-reference.md):
+ * handoffs that paraphrase the spec lose exact strings, error messages and
+ * examples. Every worker reads the spec file itself before acting.
+ */
+function renderSourceOfTruth(input: { specPath: string; hasSpec: boolean }): string {
+  const origin = input.hasSpec
+    ? `The task spec lives at **${input.specPath}**. Read the whole file before you
+start: it is the authority for the goal, the acceptance criteria, the non-goals
+and the constraints.`
+    : `The task has no spec file. The request text in this brief is the authority
+for what was asked; the goal section is the engine's projection of it.`;
+  return `## Source of truth
+
+The request and, when the task has a spec, the acceptance criteria are copied
+**verbatim** into this brief for convenience, but this brief is a projection
+of the task's sources of truth, not one of them.
+
+${origin}
+
+If this brief and the source disagree, the source wins: work from the source,
+and report \`needs_input\` with the discrepancy instead of solving it on your
+own. This section travels to every role: the reviewer must read the same source
+you read, not your account of it.
+`;
+}
+
 function renderMethodology(
   methodology: Methodology,
   spec: TaskSpec | null,
@@ -331,6 +358,25 @@ ${phases}
 }`;
 }
 
+/**
+ * Delivery sizing is advice for the developer role, not a rule the engine
+ * can enforce (docs/adr/0042-delivery-sizing-advisory.md): keeping changes
+ * reviewable in about 400 authored lines is about review quality, and the
+ * engine measures the real diff after the commit instead of capping it.
+ */
+function renderSizingAdvisory(): string {
+  return `## Delivery sizing (advisory)
+
+Keep the delivery reviewable: aim for at most about 400 authored changed lines
+(additions plus deletions) in this task's diff. If the change is naturally
+larger, organise it as coherent work units inside the task and say so in the
+report, or request smaller follow-up scope; never split, shrink, minify or drop
+real work (including comments, whitespace and tests) to look smaller. A change
+under this size is easier to review line by line; review quality matters more
+than the number: satisfy the spec, not the threshold.
+`;
+}
+
 export function generateBrief(input: BriefInput): string {
   const {
     task,
@@ -385,6 +431,10 @@ export function generateBrief(input: BriefInput): string {
       : '- No project verification commands are configured.';
 
   const specSection = renderSpec(spec);
+  const sourceOfTruthSection = renderSourceOfTruth({
+    specPath,
+    hasSpec: spec !== null,
+  });
   const verificationSection = renderVerifications(input.verifications);
   const roleSection = renderRoleInstructions({
     role,
@@ -396,6 +446,7 @@ export function generateBrief(input: BriefInput): string {
   });
   const methodologySection =
     role === 'developer' ? renderMethodology(methodology, spec) : '';
+  const sizingSection = role === 'developer' ? renderSizingAdvisory() : '';
   const reportTemplate = renderReportTemplate(
     task,
     run,
@@ -431,7 +482,7 @@ ${task.requestText}
 
   return `${frontmatter}# Task: ${task.title}
 
-${requestSection}## Goal
+${requestSection}${sourceOfTruthSection}## Goal
 
 ${goal}
 
@@ -440,8 +491,7 @@ ${renderMemories(input.memories)}
 ${renderSkills(input.skills)}
 ${roleSection}
 ${verificationSection}
-${methodologySection}
-## Context
+${methodologySection}${sizingSection}## Context
 
 - Project: ${project.name}
 - Repository: ${project.rootPath}
