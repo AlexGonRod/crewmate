@@ -203,7 +203,29 @@ firmar**. Son tres cosas y se resuelven en orden:
 
 Tu firma es el artefacto que deja la revisión en el editor, no una palabra.
 
-### 3.4 Revisar y decidir
+### 3.4 Revisión proporcional (opcional, ADR 0040)
+
+Por defecto el tester independiente corre en todas las tareas. Si tu proyecto
+lo declara, el motor puede saltárselo cuando hay señal objetiva de sobra:
+
+```yaml
+# .crew/config.yaml del proyecto
+verify:            # imprescindible: sin verificación no hay dispensa
+  - pnpm test
+review:
+  mode: proportionate
+```
+
+La regla es determinista y fail-closed: solo se salta el tester cuando la
+verificación pasa en verde y el riesgo pre-commit (medido sobre el diff del
+worktree antes del commit) es `low`. Señal ausente, binarios, ficheros no
+medibles o riesgo medio/alto → corre el tester. Cada decisión queda como
+artefacto `review_route` (evento `review.routed`), se ve en `task show` junto
+al riesgo, y `crew metrics` agrega cuántos runs del tester te ha ahorrado la
+política. El humano de la revisión decide igual: la ruta solo quita un run LLM,
+no un gate.
+
+### 3.5 Revisar y decidir
 
 Cuando la tarea llega a `review` (y solo entonces), se abre en tu editor:
 
@@ -225,7 +247,7 @@ crew-reason: encaja con el brief
 
 El editor se elige con `CREW_EDITOR` > `VISUAL` > `EDITOR` > `nvim`.
 
-### 3.5 Preguntas del agente
+### 3.6 Preguntas del agente
 
 Si el agente necesita una decisión, la tarea pasa a `waiting_input`:
 
