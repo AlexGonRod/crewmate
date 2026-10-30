@@ -64,6 +64,7 @@ import {
 } from '../app/workspace';
 import { followCaptainWork } from '../app/captain-follow';
 import { answerTaskInEditor, reviewTask } from '../app/review-flow';
+import { decideTask } from '../app/decision';
 import { taskDeliveryModeFor } from '../app/delivery';
 import { discoverSkills, findProjectRoot } from '../app/skills';
 import {
@@ -851,6 +852,71 @@ function buildProgram(): Command {
         }
         if (result.decision.risk) {
           console.log(`Risk: ${result.decision.risk.level} (score ${result.decision.risk.score})`);
+        }
+      },
+    );
+
+  task
+    .command('decision <id> [comments...]')
+    .description('record a review decision without the editor (e.g. from herdr-reviewr)')
+    .option('--accept', 'accept the task: the merge gates run as in the review buffer')
+    .option('--reject', 'reject the task: the comments become review feedback for the agent')
+    .option('--by <who>', 'who authorized the decision', 'user')
+    .option('--origin <origin>', 'where the decision came from', 'cli')
+    .option('--method <method>', 'merge method: merge, squash or rebase')
+    .option('--delete-branch', 'delete the branch after merging')
+    .action(
+      async (
+        id: string,
+        comments: string[],
+        options: {
+          accept?: boolean;
+          reject?: boolean;
+          by: string;
+          origin: string;
+          method?: MergeMethod;
+          deleteBranch?: boolean;
+        },
+      ) => {
+        const method = options.method;
+        if (method && !['merge', 'squash', 'rebase'].includes(method)) {
+          throw new CrewError('INVALID_MERGE_METHOD', `Unknown merge method: ${method}`);
+        }
+        if (options.accept && options.reject) {
+          throw new CrewError(
+            'DECISION_AMBIGUOUS',
+            'Pass either --accept or --reject, not both',
+          );
+        }
+        if (!options.accept && !options.reject) {
+          // Fail-safe: silence is never an accept.
+          throw new CrewError(
+            'DECISION_MISSING',
+            'Write --accept or --reject; without an explicit decision nothing changes',
+          );
+        }
+        const decision = (options.accept ? 'accept' : 'reject') as 'accept' | 'reject';
+        const outcome = await withStore((store, context) =>
+          decideTask(store, context, {
+            taskId: id,
+            decision,
+            comments: comments.length > 0 ? comments.join('\n') : null,
+            authorizedBy: options.by,
+            origin: options.origin,
+            method,
+            deleteBranch: options.deleteBranch,
+          }),
+        );
+        if (globalOptions().json) {
+          printJson(outcome);
+          return;
+        }
+        console.log(`Decision:  ${outcome.decision} (by ${options.by}, via ${options.origin})`);
+        console.log(`Task ${outcome.taskId}: ${outcome.taskState}`);
+        if (outcome.merge) {
+          console.log(`Merge: ${outcome.merge.state} (${outcome.merge.method}) - ${outcome.merge.reason}`);
+        } else if (outcome.reason) {
+          console.log(`Feedback:  ${outcome.reason.split('\n').join(' | ')}`);
         }
       },
     );

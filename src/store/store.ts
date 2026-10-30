@@ -2093,14 +2093,26 @@ export class Store {
     input: {
       decision: string;
       reason: string | null;
-      bufferPath: string;
+      /** The review buffer, when the decision came through the editor. */
+      bufferPath?: string | null;
       authorizedBy: string;
-      diffLines: number;
+      diffLines?: number;
+      /** Where the decision came from (e.g. 'cli' or 'herdr-reviewr'). */
+      origin?: string | null;
     },
   ): Task {
     return this.transaction(() => {
       const task = this.getTaskOrThrow(taskId);
       const createdAt = nowIso();
+      const reasonLine = input.reason ? input.reason.split('\n')[0] : null;
+      const normalized = {
+        decision: input.decision,
+        reason: input.reason,
+        bufferPath: input.bufferPath ?? null,
+        authorizedBy: input.authorizedBy,
+        diffLines: input.diffLines ?? 0,
+        origin: input.origin ?? null,
+      };
       this.db
         .prepare(
           `INSERT INTO artifacts (id, task_id, run_id, kind, ref, metadata_json, created_at)
@@ -2111,8 +2123,8 @@ export class Store {
           task.id,
           null,
           'review',
-          `${input.decision}${input.reason ? `: ${input.reason}` : ''}`,
-          JSON.stringify(input),
+          `${normalized.decision}${reasonLine ? `: ${reasonLine}` : ''}`,
+          JSON.stringify(normalized),
           createdAt,
         );
       this.appendEvent({
@@ -2121,10 +2133,11 @@ export class Store {
         taskId: task.id,
         type: 'task.reviewed',
         payload: {
-          decision: input.decision,
-          reason: input.reason,
-          authorized_by: input.authorizedBy,
-          buffer_path: input.bufferPath,
+          decision: normalized.decision,
+          reason: normalized.reason,
+          authorized_by: normalized.authorizedBy,
+          buffer_path: normalized.bufferPath,
+          origin: normalized.origin,
         },
       });
       return this.getTaskOrThrow(task.id);
