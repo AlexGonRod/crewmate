@@ -247,6 +247,29 @@ crew-reason: encaja con el brief
 
 El editor se elige con `CREW_EDITOR` > `VISUAL` > `EDITOR` > `nvim`.
 
+### Revisar desde reviewr (herdr-reviewr)
+
+Si la revisión la haces con el plugin **herdr-reviewr** de Herdr (comentas el
+diff por líneas en su pane y con `s` los comentarios llegan al input del
+agente), el pegado es una decisión cuando lleva una línea `crew-decision:`:
+
+```
+crew-decision: reject
+Fix each comment, then run the tests.
+- el caso 404 no está cubierto
+```
+
+El agente que lo recibe la registra con `crew task decision` (ADR 0043), que
+aplica los mismos gates que el buffer: los comentarios verbatim quedan como
+feedback para el developer en el siguiente intento (`--reject`), o el merge
+se ejecuta con la misma autorización que en el editor (`--accept`). Sin esa
+línea, el pegado es conversación, no una decisión.
+
+```sh
+crew task decision tsk_... "comentarios verbatim" --reject --by alex --origin herdr-reviewr
+crew task decision tsk_... --accept --by alex --origin herdr-reviewr
+```
+
 ### 3.6 Preguntas del agente
 
 Si el agente necesita una decisión, la tarea pasa a `waiting_input`:
@@ -387,6 +410,7 @@ npx skills add AlexGonRod/crewmate --skill crew-review -a opencode
 | `crew-scout` | cuándo investigar en vez de construir |
 | `stow` | barrer la sesión y archivar lo aprendido |
 | `herdr` | usar el CLI de Herdr desde una sesión del crew |
+| `herdr-reviewr` | convertir un envío del plugin reviewr en una decisión de crew |
 
 ### El `stow`
 
