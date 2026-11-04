@@ -1285,7 +1285,7 @@ function buildProgram(): Command {
     .option('--timeout <seconds>', 'timeout per task', Number)
     .option('--env <key=value>', 'extra environment variable', collect, [])
     .option('--stale-after <seconds>', 'lost-run grace period', Number, 30)
-    .option('--quiet', 'do not stream agent output')
+    .option('--stream', 'stream agent output to the terminal (default: off)')
     .action(
       async (options: {
         once?: boolean;
@@ -1301,7 +1301,7 @@ function buildProgram(): Command {
         timeout?: number;
         env: string[];
         staleAfter: number;
-        quiet?: boolean;
+        stream?: boolean;
       }) => {
         const json = globalOptions().json;
         const once = Boolean(options.once);
@@ -1349,7 +1349,7 @@ function buildProgram(): Command {
               maxIterations: options.maxIterations,
               timeoutSeconds: options.timeout,
               env: parseEnv(options.env),
-              quiet: Boolean(options.quiet || json),
+              stream: Boolean(options.stream) && !json,
               staleAfterMs: options.staleAfter * 1000,
               signal: controller.signal,
               onTask: printTask,

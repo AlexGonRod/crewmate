@@ -540,7 +540,6 @@ describe('phase 0 walking skeleton', () => {
       'fake',
       '--env',
       'CREW_FAKE_SCENARIO=success',
-      '--quiet',
     ]);
     expect(result.status, result.stderr).toBe(0);
     expect(result.json.stopped).toBe('once');
@@ -552,6 +551,103 @@ describe('phase 0 walking skeleton', () => {
     expect(statusAfter.json.queued_tasks).toBe(0);
     expect(statusAfter.json.lease).toBeNull();
     expect(cli(['--json', 'task', 'accept', id]).json.task.state).toBe('done');
+  });
+
+  it('hides agent output by default, streams it with --stream, and keeps --json silent', () => {
+    const queue = (title: string): string => {
+      const id = createTask(title);
+      expect(cli(['--json', 'task', 'queue', id]).json.task.state).toBe('queued');
+      return id;
+    };
+
+    // Default: silent daemon, only the per-task summary lines.
+    const silenced = queue('Daemon silent by default');
+    const hidden = cli([
+      'daemon',
+      'run',
+      '--once',
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=success',
+    ]);
+    expect(hidden.status, hidden.stderr).toBe(0);
+    expect(hidden.stdout).toContain(`Task ${silenced}: review`);
+    expect(hidden.stdout).not.toContain('fake agent:');
+
+    // Opt-in: --stream shows the agent output live.
+    const streamed = queue('Daemon streamed');
+    const shown = cli([
+      'daemon',
+      'run',
+      '--once',
+      '--stream',
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=success',
+    ]);
+    expect(shown.status, shown.stderr).toBe(0);
+    expect(shown.stdout).toContain(`Task ${streamed}: review`);
+    expect(shown.stdout).toContain('fake agent: scenario=success role=developer');
+
+    // --json stays silent even with --stream.
+    const jsonTask = queue('Daemon json silent');
+    const jsonRun = cli([
+      '--json',
+      'daemon',
+      'run',
+      '--once',
+      '--stream',
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=success',
+    ]);
+    expect(jsonRun.status, jsonRun.stderr).toBe(0);
+    expect(jsonRun.json.processed[0].taskState).toBe('review');
+    expect(jsonRun.json.processed[0].reportStatus).toBe('done');
+    expect(jsonRun.stdout).not.toContain('fake agent:');
+    expect(
+      cli(['--json', 'task', 'show', jsonTask]).json.task.state,
+    ).toBe('review');
+  });
+
+  it('keeps streaming in task run by default and silencing it with --quiet', () => {
+    const streamed = createTask('Task run streams');
+    const shown = cli([
+      'task',
+      'run',
+      streamed,
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=success',
+      '--timeout',
+      '10',
+    ]);
+    expect(shown.status, shown.stderr).toBe(0);
+    expect(shown.stdout).toContain('fake agent: scenario=success role=developer');
+    expect(shown.stdout).toContain(`Task ${streamed}: review`);
+
+    const quiet = createTask('Task run quiet');
+    const silenced = cli([
+      'task',
+      'run',
+      quiet,
+      '--harness',
+      'fake',
+      '--env',
+      'CREW_FAKE_SCENARIO=success',
+      '--timeout',
+      '10',
+      '--quiet',
+    ]);
+    expect(silenced.status, silenced.stderr).toBe(0);
+    expect(silenced.stdout).not.toContain('fake agent:');
+    expect(silenced.stdout).toContain(`Task ${quiet}: review`);
+    expect(cli(['--json', 'task', 'show', streamed]).json.task.state).toBe('review');
+    expect(cli(['--json', 'task', 'show', quiet]).json.task.state).toBe('review');
   });
 
   it('retries a crashing task with backoff until the attempt limit', () => {
@@ -574,7 +670,6 @@ describe('phase 0 walking skeleton', () => {
       'fake',
       '--env',
       'CREW_FAKE_SCENARIO=crash',
-      '--quiet',
     ]);
     expect(result.status, result.stderr).toBe(0);
     const events = result.stdout
@@ -628,7 +723,6 @@ describe('phase 0 walking skeleton', () => {
       'fake',
       '--env',
       'CREW_FAKE_SCENARIO=success',
-      '--quiet',
     ]);
     expect(result.status, result.stderr).toBe(0);
     const lines = result.stdout
@@ -676,7 +770,6 @@ describe('phase 0 walking skeleton', () => {
       'fake',
       '--env',
       'CREW_FAKE_SCENARIO=crash',
-      '--quiet',
     ]);
     expect(crashed.status).toBe(1);
     expect(crashed.json.processed[0].taskState).toBe('failed');
@@ -698,7 +791,6 @@ describe('phase 0 walking skeleton', () => {
       'fake',
       '--env',
       'CREW_FAKE_SCENARIO=success',
-      '--quiet',
     ]);
     expect(result.status, result.stderr).toBe(0);
     expect(result.json.processed[0].taskState).toBe('review');

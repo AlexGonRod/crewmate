@@ -139,7 +139,6 @@ export async function followCaptainWork(input: FollowInput): Promise<FollowResul
     if (runnable) {
       await runDaemon(input.store, input.context, {
         once: true,
-        quiet: true,
         maxTasks: input.maxTasks ?? 10,
         harnessId: input.harnessId,
         timeoutSeconds: input.timeoutSeconds,

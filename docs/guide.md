@@ -303,6 +303,14 @@ crew daemon run --concurrency 2 --scheduling parallel
 crew daemon run --max-attempts 3 --backoff 60   # reintentos con backoff
 ```
 
+El daemon es silencioso por defecto: solo imprime su resumen por tarea
+(`Task <id>: ...`) y no vuelca la consola de los workers en tu terminal. La
+salida completa del developer y del tester la tienes en el log del run
+(`crew task show tsk_...`). Si quieres verla en vivo mientras corre, es
+opt-in con `--stream`; en modo `--json` el daemon sigue callado, muestre o
+no stream. `crew task run` no cambia: muestra la salida del agente salvo
+`--quiet`.
+
 ---
 
 ## 5. Ver el agente trabajar

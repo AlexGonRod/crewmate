@@ -121,7 +121,6 @@ describe('proportionate review policy', () => {
       'fake',
       '--env',
       'CREW_FAKE_SCENARIO=success',
-      '--quiet',
     ]);
     expect(run.status, run.stderr).toBe(0);
 
@@ -149,7 +148,6 @@ describe('proportionate review policy', () => {
       'CREW_FAKE_DEVELOPER_SCENARIO=success_wide',
       '--env',
       'CREW_FAKE_TESTER_SCENARIO=success',
-      '--quiet',
     ]);
     expect(run.status, run.stderr).toBe(0);
 

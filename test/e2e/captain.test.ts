@@ -188,7 +188,6 @@ describe('captain layer', () => {
       'fake',
       '--env',
       'CREW_FAKE_SCENARIO=spec_success',
-      '--quiet',
     ]);
     expect(run.status, run.stderr).toBe(0);
 
@@ -277,7 +276,6 @@ describe('captain layer', () => {
         'fake',
         '--env',
         'CREW_FAKE_SCENARIO=success',
-        '--quiet',
       ]);
       expect(run.status, run.stderr).toBe(0);
 

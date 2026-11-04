@@ -238,6 +238,32 @@ describe('daemon', () => {
     expect(store.getLease('daemon')).toBeNull();
   });
 
+  it('passes quiet to the pipeline unless streaming is requested', async () => {
+    const captured: Array<{ taskId: string; quiet?: boolean }> = [];
+    const execute: DaemonExecutor = (execStore, _context, options) => {
+      captured.push({ taskId: options.taskId, quiet: options.quiet });
+      return Promise.resolve(completeTask(execStore, options.taskId));
+    };
+
+    const silentStore = createStore();
+    const silentTask = createTask(silentStore).task;
+    silentStore.queueTask(silentTask.id);
+    await runDaemon(silentStore, context(), { once: true, execute });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.quiet).toBe(true);
+
+    const streamedStore = createStore();
+    const streamedTask = createTask(streamedStore).task;
+    streamedStore.queueTask(streamedTask.id);
+    await runDaemon(streamedStore, context(), {
+      once: true,
+      stream: true,
+      execute,
+    });
+    expect(captured).toHaveLength(2);
+    expect(captured[1]?.quiet).toBe(false);
+  });
+
   it('returns idle when there is nothing queued', async () => {
     const store = createStore();
     const result = await runDaemon(store, context(), {

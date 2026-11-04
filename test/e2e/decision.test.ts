@@ -84,7 +84,6 @@ describe('task decision intake', () => {
         'fake',
         '--env',
         `CREW_FAKE_SCENARIO=${scenario}`,
-        '--quiet',
       ]).status,
     ).toBe(0);
   }

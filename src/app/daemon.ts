@@ -46,7 +46,9 @@ export interface DaemonOptions {
   maxIterations?: number;
   timeoutSeconds?: number;
   env?: Record<string, string>;
-  quiet?: boolean;
+  /** Show the subagent console output live in the terminal. Default: off
+   *  (silent); the agent output always lands in the run log. */
+  stream?: boolean;
   concurrency?: number;
   maxAttempts?: number;
   backoffMs?: number;
@@ -197,7 +199,7 @@ export async function runDaemon(
           maxIterations: options.maxIterations,
           timeoutSeconds: options.timeoutSeconds,
           env: options.env ?? {},
-          quiet: options.quiet,
+          quiet: !options.stream,
           signal: options.signal,
         });
         const summary = summarizeDetail(store.getTaskDetail(task.id));

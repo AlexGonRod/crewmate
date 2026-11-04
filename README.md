@@ -147,7 +147,7 @@ crew task clean tsk_... --force
 | `crew task accept <id> [--force]` | Acepta una tarea en `review`; con `pr`, verifica que el PR esté mergeado |
 | `crew task merge <id> [--by <quien>] [--method <merge\|squash\|rebase>] [--delete-branch] [--accept-only] [--force]` | Comprueba las puertas y mergea o acepta la tarea; si falta algo, explica qué falta. `--force` salta solo el recibo del candidato revisado |
 | `crew task reject <id> [motivo...] [--reason <texto>]` | Rechaza, guarda feedback y reencola al developer |
-| `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--scheduling <serial\|parallel>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--quiet]` | Procesa la cola de tareas |
+| `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--scheduling <serial\|parallel>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--stream]` | Procesa la cola de tareas; silencioso por defecto (la salida del agente se lee en el log del run) y opcionalmente la muestra en vivo con `--stream` |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
 | `crew ui [--port <n>] [--host <host>]` | Sirve un panel web de solo lectura con el estado del crew |
 | `crew sessions list` | Lista las sesiones visibles de agente (tmux) y cómo conectarse |
@@ -358,6 +358,10 @@ pnpm crew daemon status
 - Cada tarea mantiene su worktree, rama, run y lease `task:<id>`. Si otro
   proceso ya la está ejecutando, el daemon la deja en cola con un cooldown y
   sigue con la siguiente; un `task run` manual tampoco puede duplicarla.
+- Por defecto el daemon es silencioso: no vuelca la consola de cada subagente
+  en la terminal; solo imprime su resumen (`Task <id>: ...`). La salida
+  completa del developer y del tester sigue en el log del run
+  (`crew task show <id>`), y `--stream` la muestra en vivo, opt-in.
 - El scheduler respeta prioridad, `--max-tasks` (tareas lanzadas),
   `--concurrency` y `--once` (fuerza una tarea). Las tareas no iniciadas siguen
   `queued` cuando el daemon se detiene.

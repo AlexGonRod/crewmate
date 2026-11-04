@@ -140,7 +140,6 @@ describe('fase 3 acceptance demo', () => {
       'fake',
       '--env',
       'CREW_FAKE_SCENARIO=spec_success',
-      '--quiet',
     ]);
     expect(run.status, run.stderr).toBe(0);
 
@@ -195,7 +194,7 @@ describe('fase 3 acceptance demo', () => {
     const taskId = created.json.task.id as string;
     expect(cli(['--json', 'task', 'queue', taskId]).json.task.state).toBe('queued');
 
-    const daemon = spawn(TSX, [CLI, 'daemon', 'run', '--harness', 'fake', '--env', 'CREW_FAKE_SCENARIO=timeout', '--quiet'], {
+    const daemon = spawn(TSX, [CLI, 'daemon', 'run', '--harness', 'fake', '--env', 'CREW_FAKE_SCENARIO=timeout'], {
       cwd: repo,
       env: { ...process.env, ...env, NO_COLOR: '1' },
       detached: true,
@@ -257,7 +256,6 @@ describe('fase 3 acceptance demo', () => {
       'fake',
       '--env',
       'CREW_FAKE_SCENARIO=success',
-      '--quiet',
     ]);
     expect(finished.status, finished.stderr).toBe(0);
 
