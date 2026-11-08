@@ -52,6 +52,25 @@ multiplexor".
    el commit, el gate y el daemon son los mismos. Cambiar de backend es
    cambiar dónde se ve el agente, no cómo se ejecuta la tarea.
 
+8. **Modo interactivo de agente (opt-in, solo Herdr).** Por defecto el agente
+   sigue siendo un proceso batch. Con `session.interactive: true` en
+   `.crew/config.yaml` (o `CREW_SESSION_INTERACTIVE=1` como override), cada run
+   de subagente abre un **tab nuevo** en el workspace compartido
+   `crew-sessions`, con `cwd` = worktree, y arranca dentro un agente Pi
+   interactivo (`herdr agent start <nombre> --kind pi --pane <root_pane>`).
+   El nombre sale de `crew-<cola del runId>-<rol corto>` y se resuelve contra
+   `herdr agent list` si colisiona, porque Herdr exige
+   `[a-z][a-z0-9_-]{0,31}` y nombres únicos entre agentes vivos.
+
+   La prompt no incrusta el brief: apunta por ruta absoluta al brief, al
+   worktree y al informe, y se envía con `herdr agent prompt --wait`, que
+   confirma que el agente la ha cogido. Como un agente interactivo no
+   termina, el run acaba solo cuando el informe existe y parsea **y** el
+   agente queda `idle`/`done`; `blocked` es un fallo con extracto de
+   `agent read`, y el timeout también, con el mismo extracto. En ambos casos
+   se cierra el tab del run y nunca el workspace `crew-sessions`, que pueden
+   estar usando otros runs. El modo desactivado no cambia nada del batch.
+
 ## Consecuencias
 
 - El crew convive con el multiplexor que la persona ya usa: si el trabajo vive
@@ -64,6 +83,10 @@ multiplexor".
   mensaje claro en vez de colgarse.
 - El backend de tmux se mantiene: es el que funciona en un servidor sin
   Herdr, y sigue siendo el que usan los tests.
+- El modo interactivo se puede intervenir a mano desde la TUI de Herdr: el
+  tab es un agente más y su estado se ve como el de cualquier otro. A cambio,
+  el run no puede confiar en el código de salida del proceso, así que la
+  verdad es el informe más el estado settled del agente.
 
 ## Alternativas descartadas
 
@@ -74,6 +97,10 @@ multiplexor".
   "el agente está bloqueado" y lo expondría en el panel web. Requiere un
   proceso que escuche el socket de Herdr; es una fase propia, no un añadido
   al backend de sesiones.
-- **Usar `herdr agent start`**: sirve para agentes interactivos con un prompt;
-  el agente del crew es un proceso con un brief por entrada estándar, así que
-  la primitiva correcta es `pane run`.
+- **Hacer interactivo también el agente por defecto**: un agente que no
+  termina nunca rompe el ciclo de vida batch (exit code, timeout, informe).
+  Por eso el modo es opt-in y el default sigue siendo `pane run`.
+- **Usar `herdr agent start` para todo**: el agente del crew suele ser un
+  proceso con un brief por entrada estándar, así que la primitiva correcta
+  para el default sigue siendo `pane run`. `agent start` se usa solo en el
+  modo interactivo, donde el requisito es un agente Pi vivo en su tab.

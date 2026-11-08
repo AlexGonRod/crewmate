@@ -3,6 +3,11 @@ import { createWriteStream, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { redactText } from '../../core/redact';
 import { resolveBackend, type SessionMode } from '../../app/session';
+import {
+  CREW_SESSION_WORKSPACE,
+  buildInteractivePrompt,
+  interactiveAgentBaseName,
+} from '../../app/session/interactive';
 import { remoteProcessOptions, type RemoteRunner } from '../../app/runner';
 
 export interface ProcessResult {
@@ -10,6 +15,19 @@ export interface ProcessResult {
   signal: string | null;
   timedOut: boolean;
   outputTail: string;
+}
+
+/**
+ * Interactive agent mode (Herdr only): the agent is a long-lived Pi agent in
+ * its own tab, so the run has to point it at the brief and wait for the report
+ * instead of piping the brief through stdin.
+ */
+export interface InteractiveRunOptions {
+  briefPath: string;
+  reportPath: string;
+  worktreePath: string;
+  role: string;
+  runId: string;
 }
 
 export interface RunProcessOptions {
@@ -30,6 +48,7 @@ export interface RunProcessOptions {
   sessionStateDir?: string;
   stdinPath?: string;
   remote?: RemoteRunner | null;
+  interactive?: InteractiveRunOptions;
 }
 
 function cleanEnv(env: Record<string, string | undefined>): NodeJS.ProcessEnv {
@@ -78,6 +97,13 @@ async function runSessionProcess(
     stateDir: options.sessionStateDir,
   });
   const exitFile = path.join(path.dirname(logPath), 'exit');
+  if (options.interactive && backend.id !== 'herdr') {
+    log.end();
+    throw new Error(
+      `Interactive agent mode is only supported by the herdr backend (got ${backend.id})`,
+    );
+  }
+  const emit = (message: string): void => writeLog('crew', message);
   writeLog(
     'crew',
     `${backend.id} session started: ${name} (${command} ${args.join(' ')})`,
@@ -90,6 +116,23 @@ async function runSessionProcess(
     env,
     stdinPath: options.stdinPath,
     exitFile,
+    onEvent: emit,
+    interactive: options.interactive
+      ? {
+          kind: 'pi',
+          baseName: interactiveAgentBaseName(
+            options.interactive.runId,
+            options.interactive.role,
+          ),
+          prompt: buildInteractivePrompt({
+            briefPath: options.interactive.briefPath,
+            reportPath: options.interactive.reportPath,
+            worktreePath: options.interactive.worktreePath,
+          }),
+          reportPath: options.interactive.reportPath,
+          workspaceLabel: CREW_SESSION_WORKSPACE,
+        }
+      : undefined,
   });
   if (!started.ok) {
     log.end();
@@ -108,6 +151,7 @@ async function runSessionProcess(
   const result = await backend.wait(name, {
     timeoutMs,
     signal,
+    onEvent: emit,
   });
 
   const output = redactText(result.output, processEnv);

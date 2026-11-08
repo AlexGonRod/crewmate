@@ -650,6 +650,8 @@ crew task run tsk_... --harness opencode --session tmux
 - `crew sessions list` muestra las sesiones, su estado y el comando para
   conectarse; `crew sessions kill <nombre>` las cierra.
 - Sin `tmux` instalado, el motor sigue funcionando en modo normal.
+- Con Herdr y `session.interactive: true` (o `CREW_SESSION_INTERACTIVE=1`)
+  cada subagente corre como agente Pi en su propio tab; ver ADR 0031.
 
 Ver ADR 0023.
 

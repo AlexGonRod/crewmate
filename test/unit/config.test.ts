@@ -121,6 +121,22 @@ describe('config', () => {
     expect(() => readProjectConfig(dir)).toThrow('auto_merge.delete_branch');
   });
 
+  it('reads and validates the interactive session flag', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
+    tempDirs.push(dir);
+    mkdirSync(path.join(dir, '.crew'), { recursive: true });
+    const configPath = path.join(dir, '.crew', 'config.yaml');
+
+    writeFileSync(configPath, 'session:\n  interactive: true\n');
+    expect(readProjectConfig(dir)?.session).toEqual({ interactive: true });
+
+    writeFileSync(configPath, 'session:\n  interactive: "yes"\n');
+    expect(() => readProjectConfig(dir)).toThrow('session.interactive');
+
+    writeFileSync(configPath, 'session: true\n');
+    expect(() => readProjectConfig(dir)).toThrow('session must be an object');
+  });
+
   it('reads agents, review, and delivery from the global config', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
     tempDirs.push(dir);

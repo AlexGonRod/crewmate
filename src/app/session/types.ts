@@ -37,12 +37,29 @@ export interface StartSessionOptions {
   stdinPath?: string;
   /** Where the backend records the exit code of the command. */
   exitFile?: string;
+  /**
+   * Run an interactive agent instead of a batch command. Only Herdr supports
+   * it (ADR 0031); the batch fields are ignored when this is set.
+   */
+  interactive?: InteractiveStartOptions;
+  /** Emit run events (tab created, prompt sent, state changes) to the log. */
+  onEvent?: (message: string) => void;
+}
+
+export interface InteractiveStartOptions {
+  kind: 'pi';
+  /** Short base name; the backend resolves collisions with live agents. */
+  baseName: string;
+  prompt: string;
+  reportPath: string;
+  workspaceLabel: string;
 }
 
 export interface WaitSessionOptions {
   timeoutMs: number;
   pollMs?: number;
   signal?: AbortSignal;
+  onEvent?: (message: string) => void;
 }
 
 export interface SessionBackend {

@@ -23,6 +23,7 @@ import { assertHarnessAvailable } from '../adapters/harness/detect';
 import { getHarness, resolveHarnessId } from '../adapters/harness/registry';
 import { runProcess, type ProcessResult } from '../adapters/backend/process';
 import { sessionNameForTask, type SessionMode } from './session';
+import { resolveInteractiveMode } from './session/interactive';
 import type { RemoteRunner } from './runner';
 import {
   normalizeReport,
@@ -144,6 +145,10 @@ export async function runStage(
   options.workspace.ensureDir(path.dirname(reportPath));
 
   const projectConfig = readProjectConfig(project.rootPath);
+  const interactive = resolveInteractiveMode(
+    projectConfig?.session?.interactive,
+    process.env.CREW_SESSION_INTERACTIVE,
+  );
   const roleAgents = resolveRoleAgents(
     roleContractFor(role, task.deliveryMode),
     {
@@ -240,6 +245,16 @@ export async function runStage(
       sessionStateDir: path.join(context.paths.dataDir, 'sessions'),
       remote: options.remote ?? null,
       stdinPath: briefPath,
+      interactive:
+        interactive && options.session
+          ? {
+              briefPath,
+              reportPath,
+              worktreePath,
+              role,
+              runId: run.id,
+            }
+          : undefined,
       onSpawn: (pid) => {
         store.markRunRunning(run.id, pid);
       },

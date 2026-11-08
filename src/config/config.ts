@@ -329,6 +329,11 @@ export interface ProjectConfig {
   preset?: string;
   /** Named agent preset definitions. */
   presets?: Record<string, unknown>;
+  /** Visible-session behaviour (ADR 0031). */
+  session?: {
+    /** Run each Herdr subagent as an interactive Pi agent in its own tab. */
+    interactive?: boolean;
+  };
 }
 
 export function projectConfigPath(rootPath: string): string {
@@ -442,6 +447,27 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
         throw new CrewError(
           'PROJECT_CONFIG_INVALID',
           `presets must be a map of presets in ${configPath}`,
+        );
+      }
+    }
+    if (parsed.session !== undefined) {
+      if (
+        !parsed.session ||
+        typeof parsed.session !== 'object' ||
+        Array.isArray(parsed.session)
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `session must be an object in ${configPath}`,
+        );
+      }
+      if (
+        parsed.session.interactive !== undefined &&
+        typeof parsed.session.interactive !== 'boolean'
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `session.interactive must be a boolean in ${configPath}`,
         );
       }
     }

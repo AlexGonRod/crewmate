@@ -327,6 +327,30 @@ puedes entrar. Con **tmux**, es una sesión `crew-<taskId>-<rol>` y se abre con
 
 `auto` (el default) usa Herdr si su servidor está corriendo y cae a tmux si no.
 
+### Modo interactivo de agente (Herdr)
+
+Si quieres que cada subagente sea un agente Pi vivo en su propio tab, actívalo
+en el proyecto o por entorno (el default es batch y no cambia nada):
+
+```yaml
+# .crew/config.yaml
+session:
+  interactive: true
+```
+
+```sh
+CREW_SESSION_INTERACTIVE=1 crew task run tsk_... --session herdr
+```
+
+Cada run abre un tab en el workspace compartido `crew-sessions` con
+`cwd` = worktree y arranca un agente `pi`. La prompt solo apunta al brief, al
+worktree y al informe por ruta absoluta; el run termina cuando el informe
+existe y parsea y el agente queda `idle`/`done`. `blocked` y el timeout fallan
+con el extracto de `agent read` y cierran solo el tab del run, nunca el
+workspace compartido. `crew sessions list` los enseña mientras corren.
+
+Ver ADR 0031.
+
 ---
 
 ## 6. El capitán (hablar con el crew)
