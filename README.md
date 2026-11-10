@@ -150,7 +150,7 @@ crew task clean tsk_... --force
 | `crew daemon run [--once] [--interval <s>] [--max-tasks <n>] [--concurrency <n>] [--scheduling <serial\|parallel>] [--max-attempts <n>] [--backoff <s>] [--harness <id>] [--tester-harness <id>] [--max-iterations <n>] [--stream]` | Procesa la cola de tareas; silencioso por defecto (la salida del agente se lee en el log del run) y opcionalmente la muestra en vivo con `--stream` |
 | `crew daemon status` | Muestra lease, runs activos y tareas en cola |
 | `crew ui [--port <n>] [--host <host>]` | Sirve un panel web de solo lectura con el estado del crew |
-| `crew sessions list` | Lista las sesiones visibles de agente (tmux) y cómo conectarse |
+| `crew sessions list` | Lista las sesiones visibles (tmux o Herdr), su kind y cómo conectarse |
 | `crew sessions kill <name>` | Cierra una sesión visible |
 | `crew scout --project <ref> --title <t> --question <pregunta> [--queue]` | Crea una tarea de investigación que produce un informe |
 | `crew memory add --project <ref> --kind <kind> --title <t> --body <texto>` | Añade una nota durable al proyecto |
@@ -440,6 +440,11 @@ crew sessions kill <name>
   `blocked`, `done`, `idle`) y puedes Attach a él.
 - Con tmux, la sesión es `crew-<taskId>-<rol>` y se abre con
   `tmux attach -t <nombre>`.
+- El modo interactivo es opt-in (`session.interactive: true` o
+  `CREW_SESSION_INTERACTIVE=1`): cada run abre un tab en `crew-sessions` con
+  el agente del harness del run (`--kind opencode` o `--kind pi`). El daemon y
+  la cola también lo aplican sin `--session` por tarea.
+  `crew sessions list` muestra el kind real y el tab de cada agente.
 
 Ver ADR 0023 y ADR 0031.
 
@@ -651,7 +656,9 @@ crew task run tsk_... --harness opencode --session tmux
   conectarse; `crew sessions kill <nombre>` las cierra.
 - Sin `tmux` instalado, el motor sigue funcionando en modo normal.
 - Con Herdr y `session.interactive: true` (o `CREW_SESSION_INTERACTIVE=1`)
-  cada subagente corre como agente Pi en su propio tab; ver ADR 0031.
+  cada subagente corre como agente de su harness (OpenCode o Pi) en su propio
+  tab, también desde el daemon y la cola; sin exigir `--session` por tarea.
+  `crew sessions list` muestra el kind real y el tab. Ver ADR 0031.
 
 Ver ADR 0023.
 

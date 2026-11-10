@@ -56,8 +56,14 @@ multiplexor".
    sigue siendo un proceso batch. Con `session.interactive: true` en
    `.crew/config.yaml` (o `CREW_SESSION_INTERACTIVE=1` como override), cada run
    de subagente abre un **tab nuevo** en el workspace compartido
-   `crew-sessions`, con `cwd` = worktree, y arranca dentro un agente Pi
-   interactivo (`herdr agent start <nombre> --kind pi --pane <root_pane>`).
+   `crew-sessions`, con `cwd` = worktree, y arranca dentro un agente
+   interactivo del **harness del run**
+   (`herdr agent start <nombre> --kind <harness> --pane <root_pane>`):
+   `opencode` para el harness OpenCode y `pi` para el harness Pi. Si el
+   harness no tiene kind de Herdr (por ejemplo `fake`), el run falla con un
+   error claro antes de crear el tab o el agente. El modo llega también al
+   flujo del orquestador: `crew daemon run` y las tareas en cola lo aplican
+   sin exigir `--session` por tarea; un `--session` explícito sigue ganando.
    El nombre sale de `crew-<cola del runId>-<rol corto>` y se resuelve contra
    `herdr agent list` si colisiona, porque Herdr exige
    `[a-z][a-z0-9_-]{0,31}` y nombres únicos entre agentes vivos.
@@ -70,6 +76,7 @@ multiplexor".
    `agent read`, y el timeout también, con el mismo extracto. En ambos casos
    se cierra el tab del run y nunca el workspace `crew-sessions`, que pueden
    estar usando otros runs. El modo desactivado no cambia nada del batch.
+   `crew sessions list` muestra el kind real del agente y el tab del run.
 
 ## Consecuencias
 
@@ -103,4 +110,5 @@ multiplexor".
 - **Usar `herdr agent start` para todo**: el agente del crew suele ser un
   proceso con un brief por entrada estándar, así que la primitiva correcta
   para el default sigue siendo `pane run`. `agent start` se usa solo en el
-  modo interactivo, donde el requisito es un agente Pi vivo en su tab.
+  modo interactivo, donde el requisito es un agente vivo del harness del run
+  en su tab.

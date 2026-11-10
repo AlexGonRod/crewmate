@@ -7,6 +7,7 @@ import {
   CREW_SESSION_WORKSPACE,
   buildInteractivePrompt,
   interactiveAgentBaseName,
+  interactiveStartOptions,
 } from '../../app/session/interactive';
 import { remoteProcessOptions, type RemoteRunner } from '../../app/runner';
 
@@ -18,9 +19,9 @@ export interface ProcessResult {
 }
 
 /**
- * Interactive agent mode (Herdr only): the agent is a long-lived Pi agent in
- * its own tab, so the run has to point it at the brief and wait for the report
- * instead of piping the brief through stdin.
+ * Interactive agent mode (Herdr only): the agent is a long-lived agent of the
+ * run harness in its own tab, so the run has to point it at the brief and wait
+ * for the report instead of piping the brief through stdin.
  */
 export interface InteractiveRunOptions {
   briefPath: string;
@@ -28,6 +29,8 @@ export interface InteractiveRunOptions {
   worktreePath: string;
   role: string;
   runId: string;
+  /** Harness of the run; it decides the Herdr agent kind. */
+  harnessId: string;
 }
 
 export interface RunProcessOptions {
@@ -93,11 +96,29 @@ async function runSessionProcess(
     log.write(`${JSON.stringify({ ts: new Date().toISOString(), stream, line })}\n`);
   };
 
+  // Resolve the agent kind before touching any backend: a harness without a
+  // Herdr kind must fail before a tab or an agent exists.
+  const interactive = options.interactive
+    ? interactiveStartOptions({
+        harnessId: options.interactive.harnessId,
+        baseName: interactiveAgentBaseName(
+          options.interactive.runId,
+          options.interactive.role,
+        ),
+        prompt: buildInteractivePrompt({
+          briefPath: options.interactive.briefPath,
+          reportPath: options.interactive.reportPath,
+          worktreePath: options.interactive.worktreePath,
+        }),
+        reportPath: options.interactive.reportPath,
+        workspaceLabel: CREW_SESSION_WORKSPACE,
+      })
+    : undefined;
   const backend = resolveBackend(options.sessionMode ?? 'auto', {
     stateDir: options.sessionStateDir,
   });
   const exitFile = path.join(path.dirname(logPath), 'exit');
-  if (options.interactive && backend.id !== 'herdr') {
+  if (interactive && backend.id !== 'herdr') {
     log.end();
     throw new Error(
       `Interactive agent mode is only supported by the herdr backend (got ${backend.id})`,
@@ -117,22 +138,7 @@ async function runSessionProcess(
     stdinPath: options.stdinPath,
     exitFile,
     onEvent: emit,
-    interactive: options.interactive
-      ? {
-          kind: 'pi',
-          baseName: interactiveAgentBaseName(
-            options.interactive.runId,
-            options.interactive.role,
-          ),
-          prompt: buildInteractivePrompt({
-            briefPath: options.interactive.briefPath,
-            reportPath: options.interactive.reportPath,
-            worktreePath: options.interactive.worktreePath,
-          }),
-          reportPath: options.interactive.reportPath,
-          workspaceLabel: CREW_SESSION_WORKSPACE,
-        }
-      : undefined,
+    interactive,
   });
   if (!started.ok) {
     log.end();

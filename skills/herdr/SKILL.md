@@ -18,7 +18,8 @@ de código que corren dentro de panes y expone la sesión actual a través del
 CLI `herdr`.
 
 El crew tiene su propia integración (ADR 0031): con `--session tmux|herdr|auto`,
-cada run del crew vive en un workspace de Herdr, así que un agente que trabaje
+cada run del crew vive en un workspace de Herdr (o en un tab interactivo de
+`crew-sessions` si el modo opt-in está activo), así que un agente que trabaje
 en uno puede usar el CLI de abajo.
 
 ## Sesiones de crew
@@ -28,10 +29,19 @@ en uno puede usar el CLI de abajo.
 - Nunca cerrar, matar, mover ni reaprovechar un workspace o pane `crew-*` que
   no hayas creado tú. El motor registra ahí el código de salida del run
   (`crew task show` lo lee).
-- Los comandos `herdr agent ...` no gobiernan a los workers del crew: son
-  procesos que reciben el brief por stdin y se arrancan con `pane run`, no
-  agentes interactivos. Observarlos con `pane read` / `pane wait-output`;
-  actuar sobre un run con el CLI del crew (`crew task ...`), no con el pane.
+- Por defecto los workers del crew son procesos batch que reciben el brief
+  por stdin y se arrancan con `pane run`; se observan con `pane read` /
+  `pane wait-output`.
+- El modo interactivo es opt-in (`session.interactive: true` en
+  `.crew/config.yaml` o `CREW_SESSION_INTERACTIVE=1`): entonces cada run abre
+  un tab en `crew-sessions` y arranca un agente de Herdr con
+  `herdr agent start ... --kind <harness del run>`: `opencode` para OpenCode
+  y `pi` para Pi. El daemon y las tareas en cola también lo aplican. Los
+  comandos `herdr agent ...` siguen sin gobernar al worker: observa el tab,
+  pero actúa sobre el run con el CLI del crew (`crew task ...`), no con el
+  agente.
+- `crew sessions list` muestra el kind real de cada agente y el tab o
+  workspace donde vive.
 - Los hallazgos y resultados van al contrato de informe del crew, no al pane.
   Los panes son para observación y logs, nunca para entregar trabajo.
 - Mapear los workspaces de crew a su backend con `crew sessions list --json`.

@@ -2,7 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { HerdrBackend } from '../../src/app/session/herdr';
-import { buildInteractivePrompt } from '../../src/app/session/interactive';
+import {
+  buildInteractivePrompt,
+  type HerdrAgentKind,
+} from '../../src/app/session/interactive';
 
 const dirs: string[] = [];
 
@@ -36,6 +39,7 @@ export function startInteractive(
     worktree: string;
     reportPath: string;
     baseName?: string;
+    kind?: HerdrAgentKind;
     onEvent?: (message: string) => void;
   },
 ): ReturnType<HerdrBackend['start']> {
@@ -52,7 +56,7 @@ export function startInteractive(
     env: {},
     onEvent: options.onEvent,
     interactive: {
-      kind: 'pi',
+      kind: options.kind ?? 'pi',
       baseName: options.baseName ?? 'crew-5pteeddt48-dev',
       prompt,
       reportPath: options.reportPath,

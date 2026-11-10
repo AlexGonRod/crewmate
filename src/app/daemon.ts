@@ -2,8 +2,13 @@ import { hostname } from 'node:os';
 import { CrewError, errorMessage } from '../core/errors';
 import { isPidAlive, terminateProcessTree } from '../core/process';
 import type { CiState, RiskLevel, Task, TaskState } from '../core/types';
-import type { ResolvedContext } from '../config/config';
+import { readProjectConfig, type ResolvedContext } from '../config/config';
 import type { LostRun, Store } from '../store/store';
+import type { SessionMode } from './session';
+import {
+  interactiveSessionMode,
+  resolveInteractiveMode,
+} from './session/interactive';
 import { backoffDelayMs, DEFAULT_BACKOFF_MS } from '../core/backoff';
 import { isRetryableError } from './retry';
 import { runPipeline, type PipelineOptions, type PipelineResult } from './pipeline';
@@ -46,6 +51,8 @@ export interface DaemonOptions {
   maxIterations?: number;
   timeoutSeconds?: number;
   env?: Record<string, string>;
+  /** Visible session backend; interactive mode defaults to herdr when on. */
+  session?: SessionMode;
   /** Show the subagent console output live in the terminal. Default: off
    *  (silent); the agent output always lands in the run log. */
   stream?: boolean;
@@ -192,6 +199,17 @@ export async function runDaemon(
       try {
         const harnessId =
           options.harnessId ?? task.harnessId ?? context.config.harness;
+        const project = store.getProject(task.projectId);
+        const projectConfig = project
+          ? readProjectConfig(project.rootPath)
+          : null;
+        const session = interactiveSessionMode(
+          resolveInteractiveMode(
+            projectConfig?.session?.interactive,
+            process.env.CREW_SESSION_INTERACTIVE,
+          ),
+          options.session,
+        );
         const result = await execute(store, context, {
           taskId: task.id,
           developerHarnessId: harnessId,
@@ -199,6 +217,7 @@ export async function runDaemon(
           maxIterations: options.maxIterations,
           timeoutSeconds: options.timeoutSeconds,
           env: options.env ?? {},
+          session,
           quiet: !options.stream,
           signal: options.signal,
         });

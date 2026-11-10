@@ -23,7 +23,10 @@ import { assertHarnessAvailable } from '../adapters/harness/detect';
 import { getHarness, resolveHarnessId } from '../adapters/harness/registry';
 import { runProcess, type ProcessResult } from '../adapters/backend/process';
 import { sessionNameForTask, type SessionMode } from './session';
-import { resolveInteractiveMode } from './session/interactive';
+import {
+  interactiveSessionMode,
+  resolveInteractiveMode,
+} from './session/interactive';
 import type { RemoteRunner } from './runner';
 import {
   normalizeReport,
@@ -149,6 +152,9 @@ export async function runStage(
     projectConfig?.session?.interactive,
     process.env.CREW_SESSION_INTERACTIVE,
   );
+  // Interactive mode implies the Herdr backend unless --session says
+  // otherwise; the explicit mode always wins and the batch default is intact.
+  const session = interactiveSessionMode(interactive, options.session);
   const roleAgents = resolveRoleAgents(
     roleContractFor(role, task.deliveryMode),
     {
@@ -240,21 +246,21 @@ export async function runStage(
       stdin: brief,
       quiet: options.quiet,
       signal: options.signal,
-      session: options.session ? sessionNameForTask(task.id, role) : undefined,
-      sessionMode: options.session,
+      session: session ? sessionNameForTask(task.id, role) : undefined,
+      sessionMode: session,
       sessionStateDir: path.join(context.paths.dataDir, 'sessions'),
       remote: options.remote ?? null,
       stdinPath: briefPath,
-      interactive:
-        interactive && options.session
-          ? {
-              briefPath,
-              reportPath,
-              worktreePath,
-              role,
-              runId: run.id,
-            }
-          : undefined,
+      interactive: interactive
+        ? {
+            briefPath,
+            reportPath,
+            worktreePath,
+            role,
+            runId: run.id,
+            harnessId,
+          }
+        : undefined,
       onSpawn: (pid) => {
         store.markRunRunning(run.id, pid);
       },

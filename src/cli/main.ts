@@ -1794,6 +1794,7 @@ function buildProgram(): Command {
           name: session.name,
           backend: session.backend,
           task: session.taskId ?? '-',
+          kind: session.agentKind ?? '-',
           state: session.dead
             ? `finished (${session.exitCode ?? '?'})`
             : (session.agentState ?? 'running'),
@@ -1803,6 +1804,7 @@ function buildProgram(): Command {
           { key: 'name', label: 'SESSION' },
           { key: 'backend', label: 'BACKEND' },
           { key: 'task', label: 'TASK' },
+          { key: 'kind', label: 'KIND' },
           { key: 'state', label: 'STATE' },
           { key: 'attach', label: 'ATTACH' },
         ],

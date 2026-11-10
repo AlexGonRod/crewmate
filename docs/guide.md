@@ -329,7 +329,7 @@ puedes entrar. Con **tmux**, es una sesión `crew-<taskId>-<rol>` y se abre con
 
 ### Modo interactivo de agente (Herdr)
 
-Si quieres que cada subagente sea un agente Pi vivo en su propio tab, actívalo
+Si quieres que cada subagente sea un agente vivo en su propio tab, actívalo
 en el proyecto o por entorno (el default es batch y no cambia nada):
 
 ```yaml
@@ -339,15 +339,21 @@ session:
 ```
 
 ```sh
-CREW_SESSION_INTERACTIVE=1 crew task run tsk_... --session herdr
+CREW_SESSION_INTERACTIVE=1 crew task run tsk_...
+CREW_SESSION_INTERACTIVE=1 crew daemon run
 ```
 
 Cada run abre un tab en el workspace compartido `crew-sessions` con
-`cwd` = worktree y arranca un agente `pi`. La prompt solo apunta al brief, al
-worktree y al informe por ruta absoluta; el run termina cuando el informe
-existe y parsea y el agente queda `idle`/`done`. `blocked` y el timeout fallan
-con el extracto de `agent read` y cierran solo el tab del run, nunca el
-workspace compartido. `crew sessions list` los enseña mientras corren.
+`cwd` = worktree y arranca el agente del **harness del run**: `--kind
+opencode` con OpenCode y `--kind pi` con Pi. Un harness sin kind de Herdr
+(por ejemplo `fake`) falla con un error claro antes de crear el tab. El modo
+llega al flujo normal del orquestador: el daemon y las tareas en cola lo
+aplican sin `--session` por tarea, y un `--session` explícito sigue ganando.
+La prompt solo apunta al brief, al worktree y al informe por ruta absoluta;
+el run termina cuando el informe existe y parsea y el agente queda
+`idle`/`done`. `blocked` y el timeout fallan con el extracto de `agent read` y
+cierran solo el tab del run, nunca el workspace compartido. `crew sessions
+list` enseña el kind real del agente y su tab mientras corren.
 
 Ver ADR 0031.
 

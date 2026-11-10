@@ -7,7 +7,7 @@ import { cleanupDirs, report, startInteractive, tempDir } from './session-herdr-
 afterEach(cleanupDirs);
 
 describe('HerdrBackend interactive mode', () => {
-  it('creates a tab with the worktree cwd and starts a pi agent', () => {
+  it('creates a tab with the worktree cwd and starts the agent kind of the harness', () => {
     const dir = tempDir();
     const worktree = path.join(dir, 'worktree');
     const reportPath = path.join(worktree, '.crew', 'reports', 'run_1.json');
@@ -18,6 +18,7 @@ describe('HerdrBackend interactive mode', () => {
       name: 'crew-tsk_01M6VCD1QSK57YAKYTPG9M55G6-developer',
       worktree,
       reportPath,
+      kind: 'opencode',
     });
 
     expect(started.ok).toBe(true);
@@ -27,10 +28,29 @@ describe('HerdrBackend interactive mode', () => {
     expect(tab?.[tab.indexOf('--cwd') + 1]).toBe(worktree);
     const agent = fake.calls.find((call) => call[0] === 'agent' && call[1] === 'start');
     expect(agent).toContain('--kind');
-    expect(agent?.[agent.indexOf('--kind') + 1]).toBe('pi');
+    expect(agent?.[agent.indexOf('--kind') + 1]).toBe('opencode');
     const runTab = fake.tabs.find((item) => item.label === 'crew-tsk_01M6VCD1QSK57YAKYTPG9M55G6-developer');
     expect(runTab?.cwd).toBe(worktree);
     expect(fake.agents[0]?.name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
+  });
+
+  it('lists the real agent kind and tab of an interactive run', () => {
+    const dir = tempDir();
+    const worktree = path.join(dir, 'worktree');
+    const reportPath = path.join(worktree, '.crew', 'reports', 'run_1.json');
+    const fake = createFakeHerdr();
+    const backend = new HerdrBackend(path.join(dir, 'state'), fake.run);
+    const name = 'crew-tsk_01M6VCD1QSK57YAKYTPG9M55G6-developer';
+
+    expect(
+      startInteractive(backend, { name, worktree, reportPath, kind: 'opencode' }).ok,
+    ).toBe(true);
+    const session = backend.list().find((item) => item.name === name);
+
+    expect(session?.agentKind).toBe('opencode');
+    expect(session?.attach).toContain('tab');
+    expect(session?.command).toContain('opencode');
+    expect(session?.command).not.toContain('pi');
   });
 
   it('sends the orchestrated prompt and exits 0 only with a valid report and a settled agent', async () => {

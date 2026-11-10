@@ -21,6 +21,7 @@ import {
   shellQuote,
 } from './tmux';
 import {
+  type HerdrAgentKind,
   type SessionBackend,
   type SessionInfo,
   type SessionRunResult,
@@ -48,6 +49,7 @@ interface HerdrSessionState {
   mode?: 'batch' | 'interactive';
   tabId?: string | null;
   agentName?: string | null;
+  agentKind?: HerdrAgentKind | null;
   reportPath?: string | null;
   prompt?: string | null;
   workspaceLabel?: string | null;
@@ -98,8 +100,8 @@ function reportState(reportPath: string | null | undefined): InteractiveReportSt
  * Runs the crew agents inside Herdr instead of tmux.
  *
  * A crew session is either a Herdr workspace labelled with the session name,
- * whose root pane runs the agent (batch), or an interactive Pi agent in its
- * own tab of the shared `crew-sessions` workspace (ADR 0031).
+ * whose root pane runs the agent (batch), or an interactive agent of the run
+ * harness in its own tab of the shared `crew-sessions` workspace (ADR 0031).
  */
 export class HerdrBackend implements SessionBackend {
   readonly id = 'herdr' as const;
@@ -293,6 +295,7 @@ export class HerdrBackend implements SessionBackend {
       mode: 'interactive',
       tabId,
       agentName,
+      agentKind: spec.kind,
       reportPath: spec.reportPath,
       prompt: spec.prompt,
       workspaceLabel: spec.workspaceLabel,
@@ -614,12 +617,15 @@ export class HerdrBackend implements SessionBackend {
       sessions.push({
         name: state.name,
         taskId: state.taskId,
-        command: `herdr agent ${state.agentName ?? 'pi'}`,
+        command: `herdr agent ${state.agentName ?? 'unknown'}${
+          state.agentKind ? ` --kind ${state.agentKind}` : ''
+        }`,
         createdAt: state.createdAt,
         dead: status.dead,
         exitCode: status.exitCode,
         backend: 'herdr',
         agentState: status.agentState,
+        agentKind: state.agentKind ?? null,
         attach: `herdr (tab ${state.tabId ?? '-'})`,
       });
     }
@@ -650,6 +656,7 @@ export class HerdrBackend implements SessionBackend {
         exitCode: status.exitCode,
         backend: 'herdr',
         agentState: status.agentState,
+        agentKind: null,
         attach: `herdr (workspace ${workspace.workspace_id})`,
       });
     }

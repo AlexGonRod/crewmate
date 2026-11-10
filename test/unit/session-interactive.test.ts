@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   CREW_SESSION_WORKSPACE,
+  assertHerdrKindForHarness,
   buildInteractivePrompt,
   decideInteractiveRun,
+  herdrKindForHarness,
   interactiveAgentBaseName,
+  interactiveSessionMode,
+  interactiveStartOptions,
   isValidAgentName,
   resolveInteractiveMode,
   uniqueAgentName,
@@ -89,6 +93,50 @@ describe('interactive mode resolution', () => {
 
   it('names the shared crew workspace', () => {
     expect(CREW_SESSION_WORKSPACE).toBe('crew-sessions');
+  });
+});
+
+describe('interactive harness kind', () => {
+  const paths = {
+    baseName: 'crew-5pteeddt48-dev',
+    prompt: 'Read the brief',
+    reportPath: '/work/.crew/reports/run_1.json',
+    workspaceLabel: CREW_SESSION_WORKSPACE,
+  };
+
+  it('maps the harness of the run to the Herdr agent kind', () => {
+    expect(herdrKindForHarness('opencode')).toBe('opencode');
+    expect(herdrKindForHarness('pi')).toBe('pi');
+    expect(herdrKindForHarness('fake')).toBeNull();
+    expect(herdrKindForHarness('unknown')).toBeNull();
+  });
+
+  it('builds the start options with the kind of the run harness', () => {
+    expect(interactiveStartOptions({ harnessId: 'opencode', ...paths }).kind).toBe(
+      'opencode',
+    );
+    expect(interactiveStartOptions({ harnessId: 'pi', ...paths }).kind).toBe('pi');
+  });
+
+  it('fails with a clear error when the harness has no Herdr kind', () => {
+    expect(() => assertHerdrKindForHarness('fake')).toThrow(/opencode or pi/);
+    expect(() => assertHerdrKindForHarness('fake')).toThrow(/fake/);
+    expect(() => interactiveStartOptions({ harnessId: 'fake', ...paths })).toThrow(
+      /fake/,
+    );
+  });
+});
+
+describe('interactive session mode', () => {
+  it('defaults to herdr only when interactive mode is on', () => {
+    expect(interactiveSessionMode(false, undefined)).toBeUndefined();
+    expect(interactiveSessionMode(true, undefined)).toBe('herdr');
+  });
+
+  it('lets an explicit session mode win', () => {
+    expect(interactiveSessionMode(true, 'tmux')).toBe('tmux');
+    expect(interactiveSessionMode(true, 'auto')).toBe('auto');
+    expect(interactiveSessionMode(false, 'herdr')).toBe('herdr');
   });
 });
 

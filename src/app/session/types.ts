@@ -2,6 +2,9 @@ export type SessionBackendId = 'tmux' | 'herdr';
 
 export type SessionMode = SessionBackendId | 'auto';
 
+/** Herdr agent kinds crew can start interactively. */
+export type HerdrAgentKind = 'opencode' | 'pi';
+
 export interface SessionInfo {
   name: string;
   taskId: string | null;
@@ -12,6 +15,8 @@ export interface SessionInfo {
   backend: SessionBackendId;
   /** Lifecycle state of the agent, when the backend knows it. */
   agentState: string | null;
+  /** Harness agent kind of an interactive session, when known. */
+  agentKind?: string | null;
   /** How the human attaches to it. */
   attach: string;
 }
@@ -47,7 +52,7 @@ export interface StartSessionOptions {
 }
 
 export interface InteractiveStartOptions {
-  kind: 'pi';
+  kind: HerdrAgentKind;
   /** Short base name; the backend resolves collisions with live agents. */
   baseName: string;
   prompt: string;

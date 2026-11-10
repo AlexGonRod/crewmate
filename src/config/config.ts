@@ -331,7 +331,7 @@ export interface ProjectConfig {
   presets?: Record<string, unknown>;
   /** Visible-session behaviour (ADR 0031). */
   session?: {
-    /** Run each Herdr subagent as an interactive Pi agent in its own tab. */
+    /** Run each Herdr subagent as an interactive agent of its harness in its own tab. */
     interactive?: boolean;
   };
 }

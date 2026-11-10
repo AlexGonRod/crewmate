@@ -1,4 +1,6 @@
-import { hostname } from 'node:os';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { hostname, tmpdir } from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runDaemon, type DaemonExecutor } from '../../src/app/daemon';
 import { runPipeline, type PipelineResult } from '../../src/app/pipeline';
@@ -9,11 +11,26 @@ import type { Project, ReportPayload, Task } from '../../src/core/types';
 import { Store } from '../../src/store/store';
 
 const stores: Store[] = [];
+const tempDirs: string[] = [];
 
 function createStore(): Store {
   const store = new Store(':memory:');
   stores.push(store);
   return store;
+}
+
+function projectWithConfig(store: Store, config: string): Project {
+  const rootPath = mkdtempSync(path.join(tmpdir(), 'crew-daemon-config-'));
+  tempDirs.push(rootPath);
+  mkdirSync(path.join(rootPath, '.crew'), { recursive: true });
+  writeFileSync(path.join(rootPath, '.crew', 'config.yaml'), config, 'utf8');
+  return store.createProject({
+    name: `demo-${newId('x')}`,
+    rootPath,
+    defaultBranch: 'main',
+    remoteUrl: null,
+    forge: null,
+  });
 }
 
 function context(): ResolvedContext {
@@ -137,6 +154,9 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void
 afterEach(() => {
   while (stores.length > 0) {
     stores.pop()?.close();
+  }
+  while (tempDirs.length > 0) {
+    rmSync(tempDirs.pop() as string, { recursive: true, force: true });
   }
 });
 
@@ -262,6 +282,49 @@ describe('daemon', () => {
     });
     expect(captured).toHaveLength(2);
     expect(captured[1]?.quiet).toBe(false);
+  });
+
+  it('passes a herdr session to the pipeline when interactive mode is on', async () => {
+    const store = createStore();
+    const project = projectWithConfig(
+      store,
+      'session:\n  interactive: true\n',
+    );
+    const task = store.createTask({
+      projectId: project.id,
+      title: 'Interactive task',
+      briefText: 'Do the thing',
+      deliveryMode: 'local',
+      methodology: 'free',
+      spec: null,
+    });
+    store.queueTask(task.id);
+
+    const sessions: Array<string | undefined> = [];
+    const execute: DaemonExecutor = (execStore, _context, options) => {
+      sessions.push(options.session);
+      return Promise.resolve(completeTask(execStore, options.taskId));
+    };
+
+    await runDaemon(store, context(), { once: true, execute });
+
+    expect(sessions).toEqual(['herdr']);
+  });
+
+  it('keeps the batch path when interactive mode is off', async () => {
+    const store = createStore();
+    const { task } = createTask(store);
+    store.queueTask(task.id);
+
+    const sessions: Array<string | undefined> = [];
+    const execute: DaemonExecutor = (execStore, _context, options) => {
+      sessions.push(options.session);
+      return Promise.resolve(completeTask(execStore, options.taskId));
+    };
+
+    await runDaemon(store, context(), { once: true, execute });
+
+    expect(sessions).toEqual([undefined]);
   });
 
   it('returns idle when there is nothing queued', async () => {
