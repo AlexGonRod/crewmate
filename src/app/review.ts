@@ -61,6 +61,8 @@ export interface ReviewBufferOptions {
   diff: string;
   log: string;
   pr?: { url: string; state: string; merged: boolean; draft: boolean; mergeable: string } | null;
+  /** Live preview URL of the task worktree (ADR 0044), when one is running. */
+  previewUrl?: string | null;
   maxDiffLines?: number;
 }
 
@@ -112,6 +114,9 @@ export function buildReviewBuffer(
     `#  Gates     ${gates}`,
     `#  PR        ${
       pr ? `${pr.url} (${pr.state}${pr.draft ? ', draft' : ''}, ${pr.mergeable})` : '-'
+    }`,
+    `#  Preview   ${
+      options.previewUrl ?? `none (crew task preview ${task.id})`
     }`,
     '#',
     '#  Decide by editing the line below, then save and quit (:wq in nvim).',

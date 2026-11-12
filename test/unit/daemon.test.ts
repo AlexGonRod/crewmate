@@ -44,6 +44,7 @@ function context(): ResolvedContext {
       worktreesDir: '/tmp/crew/worktrees',
       tasksDir: '/tmp/crew/tasks',
       logsDir: '/tmp/crew/logs',
+      previewsDir: '/tmp/crew/previews',
     },
     config: {
       harness: 'fake',

@@ -5,6 +5,7 @@ import type { Store } from '../store/store';
 import { getForge } from '../forges';
 import { openInEditor } from './editor';
 import { mergeTask } from './merge';
+import { readPreview } from './preview';
 import {
   buildAnswerBuffer,
   buildReviewBuffer,
@@ -98,6 +99,7 @@ export async function reviewTask(
     diff,
     log,
     pr: livePullRequest(detail),
+    previewUrl: readPreview(context.paths.previewsDir, task.id)?.url ?? null,
     maxDiffLines: options.maxDiffLines,
   });
   const file = writeReviewFile(

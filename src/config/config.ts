@@ -334,6 +334,16 @@ export interface ProjectConfig {
     /** Run each Herdr subagent as an interactive agent of its harness in its own tab. */
     interactive?: boolean;
   };
+  /**
+   * Live preview of a task worktree (ADR 0044). Without `command`,
+   * `crew task preview` fails with PREVIEW_NOT_CONFIGURED.
+   */
+  preview?: {
+    /** Command started in the worktree. `{port}` is replaced, or PORT is exported. */
+    command?: string;
+    /** Base port; the first free one from here is used (default 4321). */
+    port?: number;
+  };
 }
 
 export function projectConfigPath(rootPath: string): string {
@@ -619,6 +629,44 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
           throw new CrewError(
             'PROJECT_CONFIG_INVALID',
             `delivery.delete_branch must be a boolean in ${configPath}`,
+          );
+        }
+      }
+    }
+    if (parsed.preview !== undefined) {
+      if (
+        !parsed.preview ||
+        typeof parsed.preview !== 'object' ||
+        Array.isArray(parsed.preview)
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `preview must be an object in ${configPath}`,
+        );
+      }
+      if (parsed.preview.command !== undefined) {
+        if (
+          typeof parsed.preview.command !== 'string' ||
+          parsed.preview.command.trim() === ''
+        ) {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `preview.command must be a non-empty string in ${configPath}`,
+          );
+        }
+        parsed.preview.command = parsed.preview.command.trim();
+      }
+      if (parsed.preview.port !== undefined) {
+        const port = parsed.preview.port;
+        if (
+          typeof port !== 'number' ||
+          !Number.isInteger(port) ||
+          port < 1 ||
+          port > 65535
+        ) {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `preview.port must be an integer between 1 and 65535 in ${configPath}`,
           );
         }
       }

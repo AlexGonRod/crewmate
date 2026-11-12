@@ -270,6 +270,38 @@ crew task decision tsk_... "comentarios verbatim" --reject --by alex --origin he
 crew task decision tsk_... --accept --by alex --origin herdr-reviewr
 ```
 
+### Ver los cambios de una tarea en vivo
+
+Antes de firmar puedes servir el worktree de la tarea y revisar el cambio
+funcionando, sin mergear ni tocar tu checkout principal (ADR 0044). Declara en
+`.crew/config.yaml` cómo se sirve el proyecto:
+
+```yaml
+preview:
+  command: npm run dev -- --port {port}
+  port: 4321            # opcional; base, por defecto 4321
+```
+
+`{port}` se sustituye por el puerto asignado; si el comando no lo contiene,
+crew exporta `PORT=<puerto>`. Después:
+
+```sh
+crew task preview tsk_...          # arranca y espera a que responda
+crew task show tsk_...             # imprime "Preview: http://localhost:4321"
+crew task preview tsk_... --stop   # para el proceso y limpia el registro
+```
+
+`crew task review` enseña la URL en la cabecera del buffer si la preview está
+viva; si no, dice cómo arrancarla. El comando es idempotente: repetirlo devuelve
+la misma URL sin duplicar el proceso. `crew task clean` la para antes de borrar
+el worktree, y un workspace remoto (`runner.repo_path`) no admite preview
+(`PREVIEW_UNSUPPORTED_REMOTE`).
+
+Con dos tareas independientes en review a la vez cada una tiene su worktree, su
+rama y su preview en un puerto distinto (4321, 4322…): puedes revisar ambas en
+paralelo sin que se pisen. Las ramas ya no comparten ficheros; si dos tareas
+comparten fichero, no eran independientes y merecen un único PR encadenado.
+
 ### 3.6 Preguntas del agente
 
 Si el agente necesita una decisión, la tarea pasa a `waiting_input`:
@@ -563,6 +595,7 @@ Solo lectura: resumen, tareas, gates, riesgo, CI. Bind a `127.0.0.1`.
 | Ver el progreso en lenguaje claro | `crew progress <id>` |
 | Ejecutar una tarea | `crew task run <id> --harness auto` |
 | Revisarla en el editor | `crew task review <id>` |
+| Verla en vivo antes de firmar | `crew task preview <id>` / `--stop` |
 | Aceptarla desde la terminal | `crew task merge <id>` |
 | Rechazarla | `crew task reject <id> "motivo"` |
 | Responder al agente | `crew task answer <id>` |
