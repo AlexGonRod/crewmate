@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -138,5 +139,27 @@ describe('task preview errors', () => {
     const preview = cli(['--json', 'task', 'preview', id]);
     expect(preview.status).not.toBe(0);
     expect(preview.stderr).toContain('[PREVIEW_UNSUPPORTED_REMOTE]');
+  });
+
+  it('fails with PREVIEW_START_FAILED and the log path when the command dies', () => {
+    writeFileSync(
+      configPath,
+      [
+        'verify:',
+        '  - node -e "process.exit(0)"',
+        'preview:',
+        '  command: node -e "process.exit(1)"',
+        '',
+      ].join('\n'),
+    );
+    const id = reviewedTask();
+    const preview = cli(['--json', 'task', 'preview', id]);
+    expect(preview.status).not.toBe(0);
+    expect(preview.stderr).toContain('[PREVIEW_START_FAILED]');
+    expect(preview.stderr).toContain(path.join(env.CREW_DATA_DIR ?? '', 'previews', `${id}.log`));
+    expect(preview.json).toBeNull();
+    expect(
+      existsSync(path.join(env.CREW_DATA_DIR ?? '', 'previews', `${id}.json`)),
+    ).toBe(false);
   });
 });

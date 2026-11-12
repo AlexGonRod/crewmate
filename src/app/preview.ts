@@ -60,11 +60,11 @@ async function waitForPort(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (!alive()) {
-      return;
-    }
     if (await probe(port)) {
       return;
+    }
+    if (!alive()) {
+      throw new Error(`preview process exited before port ${port} answered`);
     }
     await sleep(READY_POLL_MS);
   }
