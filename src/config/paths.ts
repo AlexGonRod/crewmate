@@ -11,6 +11,7 @@ export interface CrewPaths {
   worktreesDir: string;
   tasksDir: string;
   logsDir: string;
+  previewsDir: string;
 }
 
 function envPath(name: string, fallback: string): string {
@@ -40,6 +41,7 @@ export function resolvePaths(dbPathOverride?: string): CrewPaths {
     worktreesDir: path.join(dataDir, 'worktrees'),
     tasksDir: path.join(dataDir, 'tasks'),
     logsDir: path.join(dataDir, 'logs'),
+    previewsDir: path.join(dataDir, 'previews'),
   };
 }
 
@@ -53,6 +55,7 @@ export function ensurePaths(paths: CrewPaths): void {
     paths.worktreesDir,
     paths.tasksDir,
     paths.logsDir,
+    paths.previewsDir,
   ]) {
     mkdirSync(dir, { recursive: true });
   }

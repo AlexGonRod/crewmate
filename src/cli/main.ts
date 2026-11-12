@@ -64,6 +64,8 @@ import {
 } from '../app/workspace';
 import { followCaptainWork } from '../app/captain-follow';
 import { answerTaskInEditor, reviewTask } from '../app/review-flow';
+import { readPreview, startPreview, stopPreview } from '../app/preview';
+import { toStatus } from '../app/preview-state';
 import { decideTask } from '../app/decision';
 import { taskDeliveryModeFor } from '../app/delivery';
 import { discoverSkills, findProjectRoot } from '../app/skills';
@@ -332,6 +334,7 @@ function parseDeliveryMode(value: string): DeliveryMode {
 function renderTaskDetail(
   detail: ReturnType<Store['getTaskDetail']>,
   summary: TaskSummary,
+  previewUrl: string | null = null,
 ): void {
   const { task, project } = detail;
   console.log(`${pc.bold('Task')} ${task.id} [${stateLabel(task.state)}]`);
@@ -352,6 +355,9 @@ function renderTaskDetail(
   console.log(`Stage:     ${task.stage} (review iterations: ${task.reviewIterations})`);
   console.log(`Commit:    ${task.commitSha ?? '-'}`);
   console.log(`PR:        ${task.prUrl ?? '-'}${summary.pr ? ` (${summary.pr.state})` : ''}`);
+  if (previewUrl) {
+    console.log(`Preview:   ${previewUrl}`);
+  }
   const risk = summary.risk;
   console.log(
     `Risk:      ${risk ? `${risk.level} (score ${risk.score}) - ${risk.reasons.join('; ')}` : 'unknown (no change recorded)'}`,
@@ -786,12 +792,15 @@ function buildProgram(): Command {
     .command('show <id>')
     .description('show a task and its history')
     .action(async (id: string) => {
-      const detail = await withStore((store) => store.getTaskDetail(id));
+      const { detail, preview } = await withStore((store, context) => ({
+        detail: store.getTaskDetail(id),
+        preview: readPreview(context.paths.previewsDir, id),
+      }));
       const summary = summarizeDetail(detail);
       if (globalOptions().json) {
-        printJson({ ...detail, summary });
+        printJson({ ...detail, summary, preview: preview ? toStatus(preview) : null });
       } else {
-        renderTaskDetail(detail, summary);
+        renderTaskDetail(detail, summary, preview?.url ?? null);
       }
     });
 
@@ -1234,13 +1243,28 @@ function buildProgram(): Command {
     .description('remove a task worktree without deleting its branch')
     .option('--force', 'discard a dirty worktree')
     .action(async (id: string, options: { force?: boolean }) => {
-      const cleaned = await withStore((store, context) => {
+      const cleaned = await withStore(async (store, context) => {
         const detail = store.getTaskDetail(id);
         if (!detail.task.worktreePath) {
           throw new CrewError('NO_WORKTREE', `Task ${id} has no worktree`);
         }
         if (!detail.project) {
           throw new CrewError('PROJECT_NOT_FOUND', `Project not found for task ${id}`);
+        }
+        // Stop the preview before the worktree disappears (ADR 0044).
+        const stopped = await stopPreview(context.paths.previewsDir, id);
+        if (stopped.stopped) {
+          store.recordEvent({
+            aggregateType: 'task',
+            aggregateId: id,
+            taskId: id,
+            type: 'preview.stopped',
+            payload: {
+              port: stopped.state?.port ?? null,
+              pid: stopped.state?.pid ?? null,
+              url: stopped.state?.url ?? null,
+            },
+          });
         }
         const resolution = resolveWorkspace({
           project: detail.project,
@@ -1257,6 +1281,121 @@ function buildProgram(): Command {
         printJson({ task: cleaned });
       } else {
         console.log(`Removed worktree for ${cleaned.id}; branch ${cleaned.branch ?? '-'} kept`);
+      }
+    });
+
+  task
+    .command('preview <id>')
+    .description('serve a task worktree on a local port for live review (ADR 0044)')
+    .option('--stop', 'stop the preview and clean its registry')
+    .option('--timeout <seconds>', 'seconds to wait for the port to answer', Number, 60)
+    .action(async (id: string, options: { stop?: boolean; timeout: number }) => {
+      const outcome = await withStore(async (store, context) => {
+        const detail = store.getTaskDetail(id);
+        const { task, project } = detail;
+        if (!project) {
+          throw new CrewError('PROJECT_NOT_FOUND', `Task ${id} has no project`);
+        }
+        if (options.stop) {
+          const stopped = await stopPreview(context.paths.previewsDir, task.id);
+          if (stopped.stopped) {
+            store.recordEvent({
+              aggregateType: 'task',
+              aggregateId: task.id,
+              taskId: task.id,
+              type: 'preview.stopped',
+              payload: {
+                port: stopped.state?.port ?? null,
+                pid: stopped.state?.pid ?? null,
+                url: stopped.state?.url ?? null,
+              },
+            });
+          }
+          return {
+            taskId: task.id,
+            url: stopped.state?.url ?? null,
+            port: stopped.state?.port ?? null,
+            pid: stopped.state?.pid ?? null,
+            running: false,
+            stopped: stopped.stopped,
+          };
+        }
+        if (!task.worktreePath) {
+          throw new CrewError('NO_WORKTREE', `Task ${id} has no worktree`);
+        }
+        const projectConfig = readProjectConfig(project.rootPath);
+        const resolution = resolveWorkspace({
+          project,
+          projectConfig,
+          task,
+          worktreesDir: context.paths.worktreesDir,
+        });
+        if (resolution.remoteCode) {
+          throw new CrewError(
+            'PREVIEW_UNSUPPORTED_REMOTE',
+            `Task ${id} lives on a remote workspace; previews only run on a local worktree`,
+          );
+        }
+        if (!resolution.workspace.exists(resolution.workspace.worktreePath)) {
+          throw new CrewError(
+            'NO_WORKTREE',
+            `Task ${id} has no worktree at ${resolution.workspace.worktreePath}`,
+          );
+        }
+        const command = projectConfig?.preview?.command;
+        if (!command) {
+          throw new CrewError(
+            'PREVIEW_NOT_CONFIGURED',
+            [
+              `Task ${id} has no preview command. Add it to .crew/config.yaml:`,
+              '',
+              'preview:',
+              '  command: npm run dev -- --port {port}',
+              '  port: 4321  # optional base port',
+            ].join('\n'),
+          );
+        }
+        const started = await startPreview({
+          taskId: task.id,
+          worktreePath: resolution.workspace.worktreePath,
+          command,
+          basePort: projectConfig?.preview?.port,
+          previewsDir: context.paths.previewsDir,
+          timeoutMs: options.timeout * 1000,
+        });
+        if (!started.reused) {
+          store.recordEvent({
+            aggregateType: 'task',
+            aggregateId: task.id,
+            taskId: task.id,
+            type: 'preview.started',
+            payload: {
+              port: started.state.port,
+              pid: started.state.pid,
+              url: started.state.url,
+              command: started.state.command,
+            },
+          });
+        }
+        return {
+          taskId: task.id,
+          url: started.state.url,
+          port: started.state.port,
+          pid: started.state.pid,
+          running: true,
+          reused: started.reused,
+        };
+      });
+      if (globalOptions().json) {
+        printJson(outcome);
+        return;
+      }
+      if (outcome.running) {
+        console.log(`Preview ${outcome.taskId}: ${outcome.url} (pid ${outcome.pid})`);
+      } else {
+        console.log(
+          `Preview ${outcome.taskId}: ${outcome.stopped ? 'stopped' : 'was not running'}`,
+        );
       }
     });
 

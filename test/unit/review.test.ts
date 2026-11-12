@@ -139,6 +139,19 @@ describe('review buffer', () => {
     });
     expect(long).toContain('40 more line(s) truncated');
   });
+
+  it('shows the live preview URL in the header', () => {
+    const live = buildReviewBuffer(detail, {
+      diff: '',
+      log: '',
+      previewUrl: 'http://localhost:4321',
+    });
+    expect(live).toContain('#  Preview   http://localhost:4321');
+  });
+
+  it('says how to start one when no preview is live', () => {
+    expect(buffer).toContain('#  Preview   none (crew task preview tsk_1)');
+  });
 });
 
 describe('answer buffer', () => {
