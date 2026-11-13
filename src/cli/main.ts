@@ -64,6 +64,11 @@ import {
 } from '../app/workspace';
 import { followCaptainWork } from '../app/captain-follow';
 import { answerTaskInEditor, reviewTask } from '../app/review-flow';
+import {
+  DEFAULT_REVIEW_PLUGIN,
+  openTaskReviewSurface,
+  resolveReviewPluginId,
+} from '../app/review-surface';
 import { readPreview, startPreview, stopPreview } from '../app/preview';
 import { toStatus } from '../app/preview-state';
 import { decideTask } from '../app/decision';
@@ -938,6 +943,7 @@ function buildProgram(): Command {
     .option('--delete-branch', 'delete the branch after merging')
     .option('--max-diff <lines>', 'maximum number of diff lines to show', Number, 2000)
     .option('--no-open', 'write the review buffer without opening the editor')
+    .option('--herdr', 'open the review tab in Herdr instead of the editor')
     .action(
       async (
         id: string,
@@ -947,11 +953,55 @@ function buildProgram(): Command {
           deleteBranch?: boolean;
           maxDiff: number;
           open?: boolean;
+          herdr?: boolean;
         },
       ) => {
         const method = options.method as MergeMethod | undefined;
         if (method && !['merge', 'squash', 'rebase'].includes(method)) {
           throw new CrewError('INVALID_MERGE_METHOD', `Unknown merge method: ${method}`);
+        }
+        if (options.herdr) {
+          const surface = await withStore((store, context) => {
+            const detail = store.getTaskDetail(id);
+            if (!detail.project) {
+              throw new CrewError('PROJECT_NOT_FOUND', `Task ${id} has no project`);
+            }
+            if (detail.task.state !== 'review') {
+              throw new CrewError(
+                'TASK_NOT_IN_REVIEW',
+                `Task ${id} is ${detail.task.state}; only tasks in review can be reviewed`,
+              );
+            }
+            const projectConfig = readProjectConfig(detail.project.rootPath);
+            const resolution = resolveWorkspace({
+              project: detail.project,
+              projectConfig,
+              task: detail.task,
+              worktreesDir: context.paths.worktreesDir,
+            });
+            return openTaskReviewSurface(store, {
+              taskId: detail.task.id,
+              pluginId:
+                resolveReviewPluginId(projectConfig?.review?.herdr_tab) ??
+                DEFAULT_REVIEW_PLUGIN,
+              worktreePath: resolution.workspace.worktreePath,
+            });
+          });
+          if (globalOptions().json) {
+            printJson(surface);
+            return;
+          }
+          if (surface.opened) {
+            console.log(
+              `Review tab ${surface.reused ? 'focused' : 'opened'}: ${
+                surface.paneId ?? surface.pluginId
+              }`,
+            );
+          } else {
+            console.log(`Review tab not opened: ${surface.reason ?? 'unknown error'}`);
+            process.exitCode = 1;
+          }
+          return;
         }
         const outcome = await withStore((store, context) =>
           reviewTask(store, context, {

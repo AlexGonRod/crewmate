@@ -55,7 +55,7 @@ interface HerdrSessionState {
   workspaceLabel?: string | null;
 }
 
-function herdr(args: string[]): HerdrResponse {
+export function runHerdr(args: string[]): HerdrResponse {
   const result = spawnSync('herdr', args, { encoding: 'utf8' });
   if (result.error) {
     return {
@@ -108,7 +108,7 @@ export class HerdrBackend implements SessionBackend {
 
   constructor(
     private readonly stateDir: string,
-    private readonly run: HerdrRunner = herdr,
+    private readonly run: HerdrRunner = runHerdr,
   ) {}
 
   available(): boolean {

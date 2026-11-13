@@ -137,6 +137,25 @@ describe('config', () => {
     expect(() => readProjectConfig(dir)).toThrow('session must be an object');
   });
 
+  it('reads and validates the Herdr review tab', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
+    tempDirs.push(dir);
+    mkdirSync(path.join(dir, '.crew'), { recursive: true });
+    const configPath = path.join(dir, '.crew', 'config.yaml');
+
+    writeFileSync(configPath, 'review:\n  herdr_tab: reviewr\n');
+    expect(readProjectConfig(dir)?.review?.herdr_tab).toBe('reviewr');
+
+    writeFileSync(configPath, 'review:\n  herdr_tab: off\n');
+    expect(readProjectConfig(dir)?.review?.herdr_tab).toBe('off');
+
+    writeFileSync(configPath, 'review:\n  herdr_tab: "  "\n');
+    expect(() => readProjectConfig(dir)).toThrow('review.herdr_tab');
+
+    writeFileSync(configPath, 'review:\n  herdr_tab: true\n');
+    expect(() => readProjectConfig(dir)).toThrow('review.herdr_tab');
+  });
+
   it('reads agents, review, and delivery from the global config', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
     tempDirs.push(dir);
