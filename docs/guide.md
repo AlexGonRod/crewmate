@@ -270,6 +270,31 @@ crew task decision tsk_... "comentarios verbatim" --reject --by alex --origin he
 crew task decision tsk_... --accept --by alex --origin herdr-reviewr
 ```
 
+### Abrir el tab de reviewr al llegar a review
+
+Crew puede abrir ese pane por ti, sobre el worktree de la tarea y no sobre tu
+checkout principal (ADR 0046). Es opt-in por proyecto: en `.crew/config.yaml`
+
+```yaml
+review:
+  herdr_tab: reviewr        # off (por defecto) | reviewr | <plugin-id>
+```
+
+- Al entrar en `review` (desde el daemon o `crew task run`) se ejecuta
+  `herdr plugin pane open --plugin <id> --entrypoint pane --placement tab
+  --cwd <worktree> --no-focus`.
+- Si Herdr no está disponible, el plugin no está instalado o el comando falla,
+  la tarea sigue en `review` y el event log anota `review.surface_failed`; el
+  tab es una comodidad, nunca un gate.
+- Si ya hay un pane del plugin en ese worktree, se enfoca en vez de abrir otro.
+- `crew task review <id> --herdr` abre el tab bajo demanda (por ejemplo si lo
+  cerraste) sin abrir el editor. Usa `off`/ausente para no abrir nada.
+
+No hace falta activar `auto_open` del plugin: crew abre el pane explícitamente
+porque los eventos de worktree de Herdr no ven los worktrees que crew crea con
+`git worktree add`. Con el tab abierto, la decisión sigue enviándose igual que
+en la sección anterior (`crew-decision:` + `crew task decision`).
+
 ### Ver los cambios de una tarea en vivo
 
 Antes de firmar puedes servir el worktree de la tarea y revisar el cambio

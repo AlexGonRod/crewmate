@@ -318,6 +318,11 @@ export interface ProjectConfig {
      * pre-commit risk is low and the verification is green.
      */
     mode?: ReviewRouteMode;
+    /**
+     * Open a review pane in Herdr when the task enters review (ADR 0046):
+     * 'off' (default), 'reviewr' (alias of persiyanov.reviewr) or a plugin id.
+     */
+    herdr_tab?: string;
   };
   runner?: ProjectRunnerConfig;
   hygiene?: {
@@ -445,6 +450,18 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
         );
       }
       parsed.review.mode = mode;
+      if (parsed.review.herdr_tab !== undefined) {
+        if (
+          typeof parsed.review.herdr_tab !== 'string' ||
+          parsed.review.herdr_tab.trim() === ''
+        ) {
+          throw new CrewError(
+            'PROJECT_CONFIG_INVALID',
+            `review.herdr_tab must be "off", "reviewr" or a plugin id in ${configPath}`,
+          );
+        }
+        parsed.review.herdr_tab = parsed.review.herdr_tab.trim();
+      }
     }
     if (parsed.preset !== undefined && typeof parsed.preset !== 'string') {
       throw new CrewError(

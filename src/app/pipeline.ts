@@ -45,6 +45,7 @@ import {
   scanCommitHygiene,
 } from '../verify/hygiene';
 import { runStage } from './run-stage';
+import { openTaskReviewSurface, resolveReviewPluginId } from './review-surface';
 
 export type PipelineOutcome =
   | 'review'
@@ -102,6 +103,29 @@ function outcomeFor(task: Task): PipelineOutcome {
 
 function requiresForgeDelivery(mode: DeliveryMode): boolean {
   return mode === 'pr' || mode === 'auto_merge';
+}
+
+/**
+ * Moves the task into review and, when the project opts in, opens the Herdr
+ * review tab on the task worktree. The surface is best effort: the transition
+ * is already persisted before it is attempted (ADR 0046).
+ */
+function requestTaskReview(
+  store: Store,
+  projectConfig: ReturnType<typeof readProjectConfig>,
+  task: Task,
+  worktreePath: string,
+): Task {
+  const updated = store.requestReview(task.id);
+  const pluginId = resolveReviewPluginId(projectConfig?.review?.herdr_tab);
+  if (pluginId) {
+    openTaskReviewSurface(store, {
+      taskId: updated.id,
+      pluginId,
+      worktreePath,
+    });
+  }
+  return updated;
 }
 
 const TASK_LEASE_TTL_SECONDS = 30;
@@ -312,7 +336,7 @@ async function runPipelineLocked(
 
     if (isScout && developer.report) {
       store.recordScoutReport(task.id, developer.report);
-      task = store.requestReview(task.id);
+      task = requestTaskReview(store, projectConfig, task, workspace.worktreePath);
       return {
         task,
         outcome: outcomeFor(task),
@@ -590,7 +614,7 @@ async function runPipelineLocked(
         if (options.signal?.aborted) {
           throw new CrewError('TASK_ABORTED', 'Task aborted before merge');
         }
-        task = store.requestReview(task.id);
+        task = requestTaskReview(store, projectConfig, task, workspace.worktreePath);
         const deliveryPolicy = resolveDeliveryPolicy({
           taskMode: delivery,
           projectConfig,
@@ -682,7 +706,7 @@ async function runPipelineLocked(
       }
     }
 
-    task = store.requestReview(task.id);
+    task = requestTaskReview(store, projectConfig, task, workspace.worktreePath);
     return {
       task,
       outcome: 'review',
