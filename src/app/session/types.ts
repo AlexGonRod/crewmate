@@ -64,6 +64,10 @@ export interface InteractiveStartOptions {
    * otherwise). Project config `session.startupTimeoutMs`; default 30000.
    */
   startupTimeoutMs?: number;
+  /** Role of the run; decides the pane of the task layout (developer/tester). */
+  role?: string;
+  /** Task the run belongs to; enables the shared 3-pane task layout. */
+  taskId?: string;
 }
 
 export interface WaitSessionOptions {

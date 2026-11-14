@@ -441,12 +441,14 @@ crew sessions kill <name>
 - Con tmux, la sesión es `crew-<taskId>-<rol>` y se abre con
   `tmux attach -t <nombre>`.
 - El modo interactivo es opt-in (`session.interactive: true` o
-  `CREW_SESSION_INTERACTIVE=1`): cada run abre un tab en `crew-sessions` con
-  el agente del harness del run (`--kind opencode` o `--kind pi`). El daemon y
-  la cola también lo aplican sin `--session` por tarea.
+  `CREW_SESSION_INTERACTIVE=1`): cada tarea abre UN tab en `crew-sessions`
+  con 3 panes —developer y tester interactivos a la izquierda (2
+  horizontales), reviewer a la derecha— y el agente del harness del run
+  (`--kind opencode` o `--kind pi`). El daemon y la cola también lo aplican
+  sin `--session` por tarea.
   `crew sessions list` muestra el kind real y el tab de cada agente.
 
-Ver ADR 0023 y ADR 0031.
+Ver ADR 0023, ADR 0031 y ADR 0047.
 
 ## La autoridad de merge
 
@@ -656,9 +658,10 @@ crew task run tsk_... --harness opencode --session tmux
   conectarse; `crew sessions kill <nombre>` las cierra.
 - Sin `tmux` instalado, el motor sigue funcionando en modo normal.
 - Con Herdr y `session.interactive: true` (o `CREW_SESSION_INTERACTIVE=1`)
-  cada subagente corre como agente de su harness (OpenCode o Pi) en su propio
-  tab, también desde el daemon y la cola; sin exigir `--session` por tarea.
-  `crew sessions list` muestra el kind real y el tab. Ver ADR 0031.
+  cada subagente corre como agente de su harness (OpenCode o Pi) en el tab de
+  la tarea (developer y tester a la izquierda, reviewer a la derecha), también
+  desde el daemon y la cola; sin exigir `--session` por tarea.
+  `crew sessions list` muestra el kind real y el tab. Ver ADR 0031 y ADR 0047.
 
 Ver ADR 0023.
 

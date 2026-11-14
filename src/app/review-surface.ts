@@ -1,5 +1,6 @@
 import type { Store } from '../store/store';
 import { runHerdr, type HerdrRunner } from './session/herdr';
+import { reviewPaneOpenArgs } from './session/layout';
 
 /** The review plugin used by the `reviewr` alias and by the manual flag. */
 export const DEFAULT_REVIEW_PLUGIN = 'persiyanov.reviewr';
@@ -72,6 +73,7 @@ export function openReviewSurface(
   pluginId: string,
   worktreePath: string,
   run: HerdrRunner = runHerdr,
+  reviewerPaneId?: string | null,
 ): OpenSurfaceResult {
   const status = run(['status', 'server']);
   if (!status.ok) {
@@ -115,6 +117,30 @@ export function openReviewSurface(
     };
   }
 
+  // With the task layout, the review pane is opened as the reserved right
+  // column: the plugin pane splits the placeholder and the placeholder is
+  // closed so the plugin pane takes over the whole column. If that fails, the
+  // standalone tab placement is the fallback.
+  if (reviewerPaneId) {
+    const opened = run(
+      reviewPaneOpenArgs({
+        pluginId,
+        entrypointId: entrypoint.id,
+        reviewerPaneId,
+        worktreePath,
+      }),
+    );
+    const paneId =
+      opened.json?.result?.plugin_pane?.pane?.pane_id ??
+      opened.json?.result?.pane?.pane_id ??
+      opened.json?.result?.pane_id ??
+      null;
+    if (opened.ok && paneId) {
+      run(['pane', 'close', reviewerPaneId]);
+      return { opened: true, reused: false, focused: false, paneId, reason: null };
+    }
+  }
+
   const opened = run([
     'plugin',
     'pane',
@@ -144,6 +170,8 @@ export interface OpenTaskReviewSurfaceOptions {
   taskId: string;
   pluginId: string;
   worktreePath: string;
+  /** Right column of the task layout, when the interactive backend made one. */
+  reviewerPaneId?: string | null;
   run?: HerdrRunner;
 }
 
@@ -167,7 +195,7 @@ export function openTaskReviewSurface(
   };
   let result: OpenSurfaceResult;
   try {
-    result = openReviewSurface(options.pluginId, options.worktreePath, options.run);
+    result = openReviewSurface(options.pluginId, options.worktreePath, options.run, options.reviewerPaneId);
   } catch (error) {
     result = failure(error instanceof Error ? error.message : String(error));
   }

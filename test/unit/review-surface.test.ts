@@ -103,8 +103,7 @@ describe('review Herdr surface', () => {
     ]);
   });
 
-  it('focuses an existing review pane instead of opening a second one', () => {
-    const result = openReviewSurface(
+  it('focuses an existing review pane instead of opening a second one', () => {    const result = openReviewSurface(
       DEFAULT_REVIEW_PLUGIN,
       '/worktrees/tsk_1',
       runner({

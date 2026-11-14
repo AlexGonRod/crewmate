@@ -400,19 +400,23 @@ CREW_SESSION_INTERACTIVE=1 crew task run tsk_...
 CREW_SESSION_INTERACTIVE=1 crew daemon run
 ```
 
-Cada run abre un tab en el workspace compartido `crew-sessions` con
-`cwd` = worktree y arranca el agente del **harness del run**: `--kind
-opencode` con OpenCode y `--kind pi` con Pi. Un harness sin kind de Herdr
-(por ejemplo `fake`) falla con un error claro antes de crear el tab. El modo
-llega al flujo normal del orquestador: el daemon y las tareas en cola lo
-aplican sin `--session` por tarea, y un `--session` explícito sigue ganando.
-La prompt solo apunta al brief, al worktree y al informe por ruta absoluta;
-el run termina cuando el informe existe y parsea y el agente queda
-`idle`/`done`. `blocked` y el timeout fallan con el extracto de `agent read` y
-cierran solo el tab del run, nunca el workspace compartido. `crew sessions
-list` enseña el kind real del agente y su tab mientras corren.
+Cada tarea abre UN tab en el workspace compartido `crew-sessions` con
+`cwd` = worktree y 3 panes: developer (agente interactivo del harness del
+run, `--kind opencode` con OpenCode y `--kind pi` con Pi) en el pane superior
+izquierdo, tester en el pane inferior izquierdo, y la columna derecha
+reservada al reviewer (el pane del plugin de review se abre ahí al entrar en
+review). Nada roba el foco del pane desde el que se lanza. Un harness sin
+kind de Herdr (por ejemplo `fake`) falla con un error claro antes de crear el
+tab. El modo llega al flujo normal del orquestador: el daemon y las tareas en
+cola lo aplican sin `--session` por tarea, y un `--session` explícito sigue
+ganando. La prompt solo apunta al brief, al worktree y al informe por ruta
+absoluta; el run termina cuando el informe existe y parsea y el agente queda
+`idle`/`done`. `blocked` y el timeout fallan con el extracto de `agent read`
+y cierran solo el tab de la tarea, nunca el workspace compartido. Un run
+correcto deja el agente `idle` en su pane y el tab vivo para el review.
+`crew sessions list` enseña el kind real del agente y su tab mientras corren.
 
-Ver ADR 0031.
+Ver ADR 0031 y ADR 0047.
 
 ---
 

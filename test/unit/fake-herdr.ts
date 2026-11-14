@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { HerdrResponse } from '../../src/app/session/herdr';
+import { splitAndPluginPaneHandler } from './fake-herdr-split';
 import {
   failure,
   option,
@@ -28,15 +29,21 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
     })),
     prompts: [],
     workspaceCloses: [],
+    pluginPanes: [],
   };
   let nextWorkspace = 1;
   let nextTab = 1;
+  const nextPane = { value: 1 };
 
   const findAgent = (target: string): FakeAgent | undefined =>
     fake.agents.find((agent) => agent.name === target || agent.pane_id === target);
 
   fake.run = (args: string[]): HerdrResponse => {
     fake.calls.push(args);
+    const splitResult = splitAndPluginPaneHandler(fake, nextPane, args);
+    if (splitResult) {
+      return splitResult;
+    }
     if (args[0] === '--version') {
       return { ok: true, stdout: 'herdr 0.9.5\n', stderr: '', json: null };
     }
@@ -167,7 +174,13 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
       const workspace = option(args, '--workspace');
       const panes = fake.tabs
         .filter((tab) => !workspace || tab.workspace_id === workspace)
-        .map((tab) => ({ pane_id: tab.pane_id, workspace_id: tab.workspace_id }));
+        .map((tab) => ({
+          pane_id: tab.pane_id,
+          workspace_id: tab.workspace_id,
+          tab_id: tab.tab_id,
+          cwd: tab.cwd,
+          label: tab.label,
+        }));
       return response({ type: 'pane_list', panes });
     }
     if (args[0] === 'pane' && args[1] === 'get') {
