@@ -245,6 +245,7 @@ export class HerdrBackend implements SessionBackend {
       }
     }
     const agentName = uniqueAgentName(spec.baseName, taken);
+    const startupTimeoutMs = spec.startupTimeoutMs ?? 30000;
 
     const started = this.run([
       'agent',
@@ -255,7 +256,7 @@ export class HerdrBackend implements SessionBackend {
       '--pane',
       paneId,
       '--timeout',
-      '30000',
+      String(startupTimeoutMs),
     ]);
     if (!started.ok) {
       this.run(['tab', 'close', tabId]);
@@ -273,7 +274,7 @@ export class HerdrBackend implements SessionBackend {
       '--until',
       'idle',
       '--timeout',
-      '30000',
+      String(startupTimeoutMs),
     ]);
     if (!ready.ok) {
       this.run(['tab', 'close', tabId]);

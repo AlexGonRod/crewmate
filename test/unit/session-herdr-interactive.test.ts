@@ -34,6 +34,51 @@ describe('HerdrBackend interactive mode', () => {
     expect(fake.agents[0]?.name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
   });
 
+  it('passes the configured startup timeout to agent start and wait, defaulting to 30000', () => {
+    const dir = tempDir();
+    const worktree = path.join(dir, 'worktree');
+    const reportPath = path.join(worktree, '.crew', 'reports', 'run_1.json');
+    const fake = createFakeHerdr({ promptBehavior: 'report', reportPath, report: report() });
+    const backend = new HerdrBackend(path.join(dir, 'state'), fake.run);
+
+    expect(
+      startInteractive(backend, {
+        name: 'crew-tsk_01M7EADJVJRHSB74S5SGJ8GDS6-developer',
+        worktree,
+        reportPath,
+        kind: 'opencode',
+        startupTimeoutMs: 120000,
+      }).ok,
+    ).toBe(true);
+
+    const timeoutValues = fake.calls
+      .filter((call) => call[0] === 'agent' && (call[1] === 'start' || call[1] === 'wait'))
+      .map((call) => call[call.indexOf('--timeout') + 1]);
+    expect(timeoutValues).toEqual(['120000', '120000']);
+  });
+
+  it('keeps the 30000ms default startup timeout when the config does not set one', () => {
+    const dir = tempDir();
+    const worktree = path.join(dir, 'worktree');
+    const reportPath = path.join(worktree, '.crew', 'reports', 'run_1.json');
+    const fake = createFakeHerdr({ promptBehavior: 'report', reportPath, report: report() });
+    const backend = new HerdrBackend(path.join(dir, 'state'), fake.run);
+
+    expect(
+      startInteractive(backend, {
+        name: 'crew-tsk_01M7EADJVJRHSB74S5SGJ8GDS7-tester',
+        worktree,
+        reportPath,
+        kind: 'opencode',
+      }).ok,
+    ).toBe(true);
+
+    const timeoutValues = fake.calls
+      .filter((call) => call[0] === 'agent' && (call[1] === 'start' || call[1] === 'wait'))
+      .map((call) => call[call.indexOf('--timeout') + 1]);
+    expect(timeoutValues).toEqual(['30000', '30000']);
+  });
+
   it('lists the real agent kind and tab of an interactive run', () => {
     const dir = tempDir();
     const worktree = path.join(dir, 'worktree');

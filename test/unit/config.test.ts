@@ -137,6 +137,28 @@ describe('config', () => {
     expect(() => readProjectConfig(dir)).toThrow('session must be an object');
   });
 
+  it('reads and validates the session startup timeout', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
+    tempDirs.push(dir);
+    mkdirSync(path.join(dir, '.crew'), { recursive: true });
+    const configPath = path.join(dir, '.crew', 'config.yaml');
+
+    writeFileSync(configPath, 'session:\n  startupTimeoutMs: 120000\n');
+    expect(readProjectConfig(dir)?.session?.startupTimeoutMs).toBe(120000);
+
+    writeFileSync(configPath, 'session:\n  startupTimeoutMs: 0\n');
+    expect(() => readProjectConfig(dir)).toThrow('session.startupTimeoutMs');
+
+    writeFileSync(configPath, 'session:\n  startupTimeoutMs: -5\n');
+    expect(() => readProjectConfig(dir)).toThrow('session.startupTimeoutMs');
+
+    writeFileSync(configPath, 'session:\n  startupTimeoutMs: 1.5\n');
+    expect(() => readProjectConfig(dir)).toThrow('session.startupTimeoutMs');
+
+    writeFileSync(configPath, 'session:\n  startupTimeoutMs: "120000"\n');
+    expect(() => readProjectConfig(dir)).toThrow('session.startupTimeoutMs');
+  });
+
   it('reads and validates the Herdr review tab', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'crew-config-'));
     tempDirs.push(dir);
