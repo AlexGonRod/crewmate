@@ -31,6 +31,8 @@ export interface InteractiveRunOptions {
   runId: string;
   /** Harness of the run; it decides the Herdr agent kind. */
   harnessId: string;
+  /** Agent startup timeout in ms (config `session.startupTimeoutMs`). */
+  startupTimeoutMs?: number;
 }
 
 export interface RunProcessOptions {
@@ -112,6 +114,7 @@ async function runSessionProcess(
         }),
         reportPath: options.interactive.reportPath,
         workspaceLabel: CREW_SESSION_WORKSPACE,
+        startupTimeoutMs: options.interactive.startupTimeoutMs,
       })
     : undefined;
   const backend = resolveBackend(options.sessionMode ?? 'auto', {

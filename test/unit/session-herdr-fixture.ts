@@ -40,6 +40,7 @@ export function startInteractive(
     reportPath: string;
     baseName?: string;
     kind?: HerdrAgentKind;
+    startupTimeoutMs?: number;
     onEvent?: (message: string) => void;
   },
 ): ReturnType<HerdrBackend['start']> {
@@ -61,6 +62,7 @@ export function startInteractive(
       prompt,
       reportPath: options.reportPath,
       workspaceLabel: 'crew-sessions',
+      startupTimeoutMs: options.startupTimeoutMs,
     },
   });
 }

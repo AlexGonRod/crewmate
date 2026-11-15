@@ -58,6 +58,12 @@ export interface InteractiveStartOptions {
   prompt: string;
   reportPath: string;
   workspaceLabel: string;
+  /**
+   * Milliseconds the backend waits for `agent start` and for the agent to
+   * become idle (herdr reports "timed out waiting for agent startup"
+   * otherwise). Project config `session.startupTimeoutMs`; default 30000.
+   */
+  startupTimeoutMs?: number;
 }
 
 export interface WaitSessionOptions {

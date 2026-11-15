@@ -338,6 +338,12 @@ export interface ProjectConfig {
   session?: {
     /** Run each Herdr subagent as an interactive agent of its harness in its own tab. */
     interactive?: boolean;
+    /**
+     * Milliseconds the Herdr backend waits for `agent start` and for the
+     * agent to become idle (default 30000). Raise it when the harness
+     * starts slowly (cold opencode start can exceed 30s).
+     */
+    startupTimeoutMs?: number;
   };
   /**
    * Live preview of a task worktree (ADR 0044). Without `command`,
@@ -495,6 +501,17 @@ export function readProjectConfig(rootPath: string): ProjectConfig | null {
         throw new CrewError(
           'PROJECT_CONFIG_INVALID',
           `session.interactive must be a boolean in ${configPath}`,
+        );
+      }
+      if (
+        parsed.session.startupTimeoutMs !== undefined &&
+        (typeof parsed.session.startupTimeoutMs !== 'number' ||
+          !Number.isInteger(parsed.session.startupTimeoutMs) ||
+          parsed.session.startupTimeoutMs <= 0)
+      ) {
+        throw new CrewError(
+          'PROJECT_CONFIG_INVALID',
+          `session.startupTimeoutMs must be a positive integer in ${configPath}`,
         );
       }
     }

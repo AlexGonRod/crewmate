@@ -259,6 +259,7 @@ export async function runStage(
             role,
             runId: run.id,
             harnessId,
+            startupTimeoutMs: projectConfig?.session?.startupTimeoutMs,
           }
         : undefined,
       onSpawn: (pid) => {
