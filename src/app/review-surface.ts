@@ -43,6 +43,27 @@ function herdrError(result: { stderr: string; stdout: string }): string {
   return (result.stderr.trim() || result.stdout.trim() || 'unknown error').split('\n')[0] ?? 'unknown error';
 }
 
+/**
+ * Extracts the pane id from a `herdr plugin pane open` response. The plugin
+ * path (herdr 0.9.5, reviewr 0.48.0) answers with
+ * `result.plugin_pane.pane.pane_id`; the older shapes are kept as fallbacks so
+ * other plugin versions keep working.
+ */
+export function pluginPaneId(json: unknown): string | null {
+  const result = (json as any)?.result;
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+  const candidates = [
+    result.plugin_pane?.pane?.pane_id,
+    result.pane?.pane_id,
+    result.pane_id,
+    result.root_pane?.pane_id,
+  ];
+  const found = candidates.find((value) => typeof value === 'string' && value !== '');
+  return typeof found === 'string' ? found : null;
+}
+
 interface PluginPane {
   id: string;
   title: string;
@@ -130,11 +151,7 @@ export function openReviewSurface(
         worktreePath,
       }),
     );
-    const paneId =
-      opened.json?.result?.plugin_pane?.pane?.pane_id ??
-      opened.json?.result?.pane?.pane_id ??
-      opened.json?.result?.pane_id ??
-      null;
+    const paneId = pluginPaneId(opened.json);
     if (opened.ok && paneId) {
       run(['pane', 'close', reviewerPaneId]);
       return { opened: true, reused: false, focused: false, paneId, reason: null };
@@ -158,11 +175,7 @@ export function openReviewSurface(
   if (!opened.ok) {
     return failure(`could not open the herdr plugin pane: ${herdrError(opened)}`);
   }
-  const paneId =
-    opened.json?.result?.pane?.pane_id ??
-    opened.json?.result?.pane_id ??
-    opened.json?.result?.root_pane?.pane_id ??
-    null;
+  const paneId = pluginPaneId(opened.json);
   return { opened: true, reused: false, focused: false, paneId, reason: null };
 }
 

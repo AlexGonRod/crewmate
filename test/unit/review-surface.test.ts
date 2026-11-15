@@ -103,6 +103,31 @@ describe('review Herdr surface', () => {
     ]);
   });
 
+  it('reads the pane id from the real plugin response shape (plugin_pane.pane)', () => {
+    // Real answer of `herdr plugin pane open` (server 0.9.5, plugin
+    // persiyanov.reviewr 0.48.0): the id lives in
+    // .result.plugin_pane.pane.pane_id, not in .result.pane.
+    const realShape = response({
+      json: {
+        result: {
+          plugin_pane: {
+            pane: {
+              pane_id: 'wT:pA',
+              label: 'reviewr',
+              cwd: '/worktrees/tsk_1',
+            },
+          },
+        },
+      },
+    });
+    const result = openReviewSurface(
+      DEFAULT_REVIEW_PLUGIN,
+      '/worktrees/tsk_1',
+      runner({ 'plugin pane open --plugin persiyanov.reviewr --entrypoint pane --placement tab --cwd /worktrees/tsk_1 --no-focus': realShape }),
+    );
+    expect(result).toMatchObject({ opened: true, reused: false, paneId: 'wT:pA', reason: null });
+  });
+
   it('focuses an existing review pane instead of opening a second one', () => {    const result = openReviewSurface(
       DEFAULT_REVIEW_PLUGIN,
       '/worktrees/tsk_1',
