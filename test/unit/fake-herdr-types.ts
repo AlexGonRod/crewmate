@@ -29,10 +29,12 @@ export interface FakeHerdr {
   run: HerdrRunner;
   calls: string[][];
   workspaces: Array<{ workspace_id: string; label: string }>;
+  /** Every pane: tab roots and the panes created by splits/plugin opens. */
   tabs: FakeTab[];
   agents: FakeAgent[];
   prompts: string[];
   workspaceCloses: string[];
+  pluginPanes: string[];
 }
 
 export function response(result: unknown): HerdrResponse {

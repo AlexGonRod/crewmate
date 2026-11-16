@@ -1,5 +1,6 @@
 import type { Store } from '../store/store';
 import { runHerdr, type HerdrRunner } from './session/herdr';
+import { reviewPaneOpenArgs } from './session/layout';
 
 /** The review plugin used by the `reviewr` alias and by the manual flag. */
 export const DEFAULT_REVIEW_PLUGIN = 'persiyanov.reviewr';
@@ -42,6 +43,27 @@ function herdrError(result: { stderr: string; stdout: string }): string {
   return (result.stderr.trim() || result.stdout.trim() || 'unknown error').split('\n')[0] ?? 'unknown error';
 }
 
+/**
+ * Extracts the pane id from a `herdr plugin pane open` response. The plugin
+ * path (herdr 0.9.5, reviewr 0.48.0) answers with
+ * `result.plugin_pane.pane.pane_id`; the older shapes are kept as fallbacks so
+ * other plugin versions keep working.
+ */
+export function pluginPaneId(json: unknown): string | null {
+  const result = (json as any)?.result;
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+  const candidates = [
+    result.plugin_pane?.pane?.pane_id,
+    result.pane?.pane_id,
+    result.pane_id,
+    result.root_pane?.pane_id,
+  ];
+  const found = candidates.find((value) => typeof value === 'string' && value !== '');
+  return typeof found === 'string' ? found : null;
+}
+
 interface PluginPane {
   id: string;
   title: string;
@@ -72,6 +94,7 @@ export function openReviewSurface(
   pluginId: string,
   worktreePath: string,
   run: HerdrRunner = runHerdr,
+  reviewerPaneId?: string | null,
 ): OpenSurfaceResult {
   const status = run(['status', 'server']);
   if (!status.ok) {
@@ -115,6 +138,26 @@ export function openReviewSurface(
     };
   }
 
+  // With the task layout, the review pane is opened as the reserved right
+  // column: the plugin pane splits the placeholder and the placeholder is
+  // closed so the plugin pane takes over the whole column. If that fails, the
+  // standalone tab placement is the fallback.
+  if (reviewerPaneId) {
+    const opened = run(
+      reviewPaneOpenArgs({
+        pluginId,
+        entrypointId: entrypoint.id,
+        reviewerPaneId,
+        worktreePath,
+      }),
+    );
+    const paneId = pluginPaneId(opened.json);
+    if (opened.ok && paneId) {
+      run(['pane', 'close', reviewerPaneId]);
+      return { opened: true, reused: false, focused: false, paneId, reason: null };
+    }
+  }
+
   const opened = run([
     'plugin',
     'pane',
@@ -132,11 +175,7 @@ export function openReviewSurface(
   if (!opened.ok) {
     return failure(`could not open the herdr plugin pane: ${herdrError(opened)}`);
   }
-  const paneId =
-    opened.json?.result?.pane?.pane_id ??
-    opened.json?.result?.pane_id ??
-    opened.json?.result?.root_pane?.pane_id ??
-    null;
+  const paneId = pluginPaneId(opened.json);
   return { opened: true, reused: false, focused: false, paneId, reason: null };
 }
 
@@ -144,6 +183,8 @@ export interface OpenTaskReviewSurfaceOptions {
   taskId: string;
   pluginId: string;
   worktreePath: string;
+  /** Right column of the task layout, when the interactive backend made one. */
+  reviewerPaneId?: string | null;
   run?: HerdrRunner;
 }
 
@@ -167,7 +208,7 @@ export function openTaskReviewSurface(
   };
   let result: OpenSurfaceResult;
   try {
-    result = openReviewSurface(options.pluginId, options.worktreePath, options.run);
+    result = openReviewSurface(options.pluginId, options.worktreePath, options.run, options.reviewerPaneId);
   } catch (error) {
     result = failure(error instanceof Error ? error.message : String(error));
   }

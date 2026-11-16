@@ -128,6 +128,8 @@ export interface InteractiveStartInput {
   workspaceLabel?: string;
   /** Agent startup timeout in ms (config `session.startupTimeoutMs`). */
   startupTimeoutMs?: number;
+  role?: string;
+  taskId?: string;
 }
 
 export function interactiveStartOptions(
@@ -140,6 +142,8 @@ export function interactiveStartOptions(
     reportPath: input.reportPath,
     workspaceLabel: input.workspaceLabel ?? CREW_SESSION_WORKSPACE,
     startupTimeoutMs: input.startupTimeoutMs,
+    role: input.role,
+    taskId: input.taskId,
   };
 }
 

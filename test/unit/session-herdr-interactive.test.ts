@@ -119,8 +119,9 @@ describe('HerdrBackend interactive mode', () => {
     expect(fake.prompts[0]).toContain(path.join(worktree, '.crew', 'brief.md'));
     expect(fake.prompts[0]).toContain(reportPath);
     expect(result.output).toContain('pi finished the task');
-    expect(fake.tabs.some((tab) => tab.label === name)).toBe(false);
-    expect(fake.workspaces.length).toBe(1);
+    // A graceful finish leaves the tab alive: the agent stays idle in its
+    // pane and the reviewer surface still needs the task layout.
+    expect(fake.tabs.some((tab) => tab.label === name)).toBe(true);
     expect(fake.workspaceCloses).toEqual([]);
   });
 

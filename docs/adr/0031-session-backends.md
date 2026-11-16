@@ -67,6 +67,9 @@ multiplexor".
    El nombre sale de `crew-<cola del runId>-<rol corto>` y se resuelve contra
    `herdr agent list` si colisiona, porque Herdr exige
    `[a-z][a-z0-9_-]{0,31}` y nombres únicos entre agentes vivos.
+   (Enmendado por el ADR 0047: los runs de una misma tarea comparten un único
+   tab con 3 panes —developer y tester a la izquierda, reviewer a la derecha—;
+   este punto describe la caída cuando el layout no está disponible.)
 
    La prompt no incrusta el brief: apunta por ruta absoluta al brief, al
    worktree y al informe, y se envía con `herdr agent prompt --wait`, que

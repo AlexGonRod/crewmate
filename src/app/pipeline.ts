@@ -1,4 +1,5 @@
 import { hostname } from 'node:os';
+import path from 'node:path';
 import { CrewError, errorMessage } from '../core/errors';
 import type {
   CiResult,
@@ -45,7 +46,11 @@ import {
   scanCommitHygiene,
 } from '../verify/hygiene';
 import { runStage } from './run-stage';
-import { openTaskReviewSurface, resolveReviewPluginId } from './review-surface';
+import {
+  openTaskReviewSurface,
+  resolveReviewPluginId,
+} from './review-surface';
+import { readTaskLayout } from './session/layout';
 
 export type PipelineOutcome =
   | 'review'
@@ -115,14 +120,19 @@ function requestTaskReview(
   projectConfig: ReturnType<typeof readProjectConfig>,
   task: Task,
   worktreePath: string,
+  sessionsDir?: string,
 ): Task {
   const updated = store.requestReview(task.id);
   const pluginId = resolveReviewPluginId(projectConfig?.review?.herdr_tab);
   if (pluginId) {
+    // When the interactive Herdr backend built the 3-pane task layout, the
+    // review pane takes the reserved right column instead of a new tab.
+    const layout = sessionsDir ? readTaskLayout(sessionsDir, task.id) : null;
     openTaskReviewSurface(store, {
       taskId: updated.id,
       pluginId,
       worktreePath,
+      reviewerPaneId: layout?.reviewerPaneId ?? null,
     });
   }
   return updated;
@@ -259,6 +269,9 @@ async function runPipelineLocked(
     remote,
     workspace,
   };
+  // The interactive Herdr backend keeps its layout states next to the
+  // session states; the review surface uses them to place the reviewer.
+  const sessionsDir = path.join(context.paths.dataDir, 'sessions');
 
   let developerReport: Report | null = null;
   let testerReport: Report | null = null;
@@ -336,7 +349,7 @@ async function runPipelineLocked(
 
     if (isScout && developer.report) {
       store.recordScoutReport(task.id, developer.report);
-      task = requestTaskReview(store, projectConfig, task, workspace.worktreePath);
+      task = requestTaskReview(store, projectConfig, task, workspace.worktreePath, sessionsDir);
       return {
         task,
         outcome: outcomeFor(task),
@@ -614,7 +627,7 @@ async function runPipelineLocked(
         if (options.signal?.aborted) {
           throw new CrewError('TASK_ABORTED', 'Task aborted before merge');
         }
-        task = requestTaskReview(store, projectConfig, task, workspace.worktreePath);
+        task = requestTaskReview(store, projectConfig, task, workspace.worktreePath, sessionsDir);
         const deliveryPolicy = resolveDeliveryPolicy({
           taskMode: delivery,
           projectConfig,
@@ -706,7 +719,7 @@ async function runPipelineLocked(
       }
     }
 
-    task = requestTaskReview(store, projectConfig, task, workspace.worktreePath);
+    task = requestTaskReview(store, projectConfig, task, workspace.worktreePath, sessionsDir);
     return {
       task,
       outcome: 'review',

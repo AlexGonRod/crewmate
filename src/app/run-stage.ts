@@ -258,6 +258,7 @@ export async function runStage(
             worktreePath,
             role,
             runId: run.id,
+            taskId: task.id,
             harnessId,
             startupTimeoutMs: projectConfig?.session?.startupTimeoutMs,
           }

@@ -17,6 +17,13 @@ import {
   type InteractiveReportState,
 } from './interactive';
 import {
+  isLayoutFileName,
+  layoutPath,
+  paneSplitArgs,
+  readTaskLayout,
+  type TaskLayout,
+} from './layout';
+import {
   buildCommand,
   shellQuote,
 } from './tmux';
@@ -144,7 +151,7 @@ export class HerdrBackend implements SessionBackend {
   private listStates(): HerdrSessionState[] {
     try {
       return readdirSync(this.stateDir)
-        .filter((entry) => entry.endsWith('.json'))
+        .filter((entry) => entry.endsWith('.json') && !isLayoutFileName(entry))
         .map((entry) => this.readState(entry.replace(/\.json$/, '')))
         .filter((state): state is HerdrSessionState => state !== null);
     } catch {
@@ -202,11 +209,49 @@ export class HerdrBackend implements SessionBackend {
     return agent.ok && typeof state === 'string' ? state : null;
   }
 
-  private startInteractive(options: StartSessionOptions): { ok: boolean; error?: string } {
-    const spec = options.interactive;
-    if (!spec) {
-      return { ok: false, error: 'interactive options are missing' };
+  private splitPane(paneId: string, direction: 'right' | 'down', cwd: string): string | null {
+    const result = this.run(paneSplitArgs(paneId, direction, cwd));
+    return result.json?.result?.pane?.pane_id ?? null;
+  }
+
+  private paneExists(paneId: string): boolean {
+    return this.run(['pane', 'get', paneId]).ok;
+  }
+
+  private saveLayout(layout: TaskLayout): void {
+    mkdirSync(this.stateDir, { recursive: true });
+    writeFileSync(layoutPath(this.stateDir, layout.taskId), JSON.stringify(layout, null, 2), 'utf8');
+  }
+
+  /** The task layout, as long as its tab is still alive in Herdr. */
+  private reusableLayout(taskId: string): TaskLayout | null {
+    const layout = readTaskLayout(this.stateDir, taskId);
+    if (!layout) {
+      return null;
     }
+    return this.run(['tab', 'get', layout.tabId]).ok ? layout : null;
+  }
+
+  private agentNameFor(spec: { baseName: string }): string {
+    const listed = this.run(['agent', 'list']);
+    const taken = new Set<string>();
+    for (const agent of listed.json?.result?.agents ?? []) {
+      if (typeof agent.name === 'string') {
+        taken.add(agent.name);
+      }
+    }
+    return uniqueAgentName(spec.baseName, taken);
+  }
+
+  private startInteractive(
+    options: StartSessionOptions,
+    spec: NonNullable<StartSessionOptions['interactive']>,
+  ): { ok: boolean; error?: string } {
+    const layout = spec.taskId ? this.reusableLayout(spec.taskId) : null;
+    if (layout && (spec.role === 'developer' || spec.role === 'tester')) {
+      return this.startInteractiveInLayout(options, spec, layout);
+    }
+
     const workspaceId = this.ensureWorkspace(spec.workspaceLabel, options.cwd);
     if (!workspaceId) {
       return {
@@ -237,14 +282,32 @@ export class HerdrBackend implements SessionBackend {
       };
     }
 
-    const listed = this.run(['agent', 'list']);
-    const taken = new Set<string>();
-    for (const agent of listed.json?.result?.agents ?? []) {
-      if (typeof agent.name === 'string') {
-        taken.add(agent.name);
+    // The 3-pane task layout is created with the developer run: one split to
+    // the right reserves the reviewer column, one split down divides the left
+    // column into developer (top) and tester (bottom). Both with --no-focus,
+    // so the calling pane keeps its focus.
+    if (spec.taskId && spec.role === 'developer') {
+      const reviewerPaneId = this.splitPane(paneId, 'right', options.cwd);
+      const testerPaneId = reviewerPaneId ? this.splitPane(paneId, 'down', options.cwd) : null;
+      if (reviewerPaneId && testerPaneId) {
+        this.saveLayout({
+          schema: 'crew.herdr-layout/v1',
+          taskId: spec.taskId,
+          workspaceId,
+          tabId,
+          developerPaneId: paneId,
+          testerPaneId,
+          reviewerPaneId,
+          createdAt: new Date().toISOString(),
+        });
+        options.onEvent?.(
+          `task layout created: dev=${paneId} test=${testerPaneId} review=${reviewerPaneId}`,
+        );
+      } else {
+        options.onEvent?.('task layout unavailable: falling back to one tab per run');
       }
     }
-    const agentName = uniqueAgentName(spec.baseName, taken);
+    const agentName = this.agentNameFor(spec);
     const startupTimeoutMs = spec.startupTimeoutMs ?? 30000;
 
     const started = this.run([
@@ -291,7 +354,7 @@ export class HerdrBackend implements SessionBackend {
       workspaceId,
       paneId,
       exitFile: null,
-      taskId: options.name.replace(/^crew-/, '').split('-')[0] ?? null,
+      taskId: spec.taskId ?? options.name.replace(/^crew-/, '').split('-')[0] ?? null,
       createdAt: new Date().toISOString(),
       mode: 'interactive',
       tabId,
@@ -306,6 +369,91 @@ export class HerdrBackend implements SessionBackend {
     return { ok: true };
   }
 
+  /**
+   * Starts a run inside the shared task layout: the developer takes the
+   * top-left pane, the tester the bottom-left one, and no new tab is created.
+   * A missing tab (or a closed developer pane after a retry) rebuilds the
+   * layout instead of stacking a second tab for the same task.
+   */
+  private startInteractiveInLayout(
+    options: StartSessionOptions,
+    spec: NonNullable<StartSessionOptions['interactive']>,
+    layout: TaskLayout,
+  ): { ok: boolean; error?: string } {
+    const isTester = spec.role === 'tester';
+    let paneId = isTester ? layout.testerPaneId : layout.developerPaneId;
+    if (!this.paneExists(paneId)) {
+      if (isTester && this.paneExists(layout.developerPaneId)) {
+        const rebuilt = this.splitPane(layout.developerPaneId, 'down', options.cwd);
+        if (!rebuilt) {
+          return { ok: false, error: `Could not rebuild the tester pane of the task layout` };
+        }
+        paneId = rebuilt;
+        this.saveLayout({ ...layout, testerPaneId: rebuilt });
+      } else {
+        // The layout cannot host this run: drop it so a fresh tab is built.
+        rmSync(layoutPath(this.stateDir, layout.taskId), { force: true });
+        return this.startInteractive(options, spec);
+      }
+    }
+
+    const agentName = this.agentNameFor(spec);
+    const started = this.run([
+      'agent',
+      'start',
+      agentName,
+      '--kind',
+      spec.kind,
+      '--pane',
+      paneId,
+      '--timeout',
+      '30000',
+    ]);
+    if (!started.ok) {
+      return {
+        ok: false,
+        error: `Could not start the ${spec.kind} agent ${agentName} in the task layout: ${
+          started.stderr.trim() || 'unknown error'
+        }`,
+      };
+    }
+    const ready = this.run([
+      'agent',
+      'wait',
+      agentName,
+      '--until',
+      'idle',
+      '--timeout',
+      '30000',
+    ]);
+    if (!ready.ok) {
+      return {
+        ok: false,
+        error: `The ${spec.kind} agent ${agentName} did not become idle: ${
+          ready.stderr.trim() || 'unknown error'
+        }`,
+      };
+    }
+
+    this.writeState({
+      name: options.name,
+      workspaceId: layout.workspaceId,
+      paneId,
+      exitFile: null,
+      taskId: layout.taskId,
+      createdAt: new Date().toISOString(),
+      mode: 'interactive',
+      tabId: layout.tabId,
+      agentName,
+      agentKind: spec.kind,
+      reportPath: spec.reportPath,
+      prompt: spec.prompt,
+      workspaceLabel: spec.workspaceLabel,
+    });
+    options.onEvent?.(`${spec.kind} agent started: ${agentName} (pane ${paneId}, tab ${layout.tabId})`);
+    return { ok: true };
+  }
+
   start(options: StartSessionOptions): { ok: boolean; error?: string } {
     if (!this.available()) {
       return {
@@ -315,7 +463,7 @@ export class HerdrBackend implements SessionBackend {
       };
     }
     if (options.interactive) {
-      return this.startInteractive(options);
+      return this.startInteractive(options, options.interactive);
     }
     const existing = this.findWorkspace(options.name);
     if (existing) {
@@ -470,7 +618,7 @@ export class HerdrBackend implements SessionBackend {
         clearInterval(timer);
         options.signal?.removeEventListener('abort', onAbort);
         const output = this.capture(name);
-        this.kill(name);
+        this.kill(name, { graceful: exitCode === 0 });
         resolve({ exitCode, output, timedOut });
       };
       const onAbort = (): void => {
@@ -587,16 +735,37 @@ export class HerdrBackend implements SessionBackend {
     });
   }
 
-  kill(name: string): boolean {
+  /**
+   * Stops a session. A graceful finish (the report was written and the agent
+   * settled) leaves the agent idle in its pane and the task tab alive: the
+   * reviewer surface still needs the layout, and the human can read the
+   * conversation. Any other outcome closes the pane (stopping the agent) and,
+   * when no other run of the task remains, the tab and the layout with it.
+   * The shared crew-sessions workspace is never closed.
+   */
+  kill(name: string, options?: { graceful?: boolean }): boolean {
     const state = this.readState(name);
     if (!state) {
       return false;
     }
     if (state.mode === 'interactive') {
-      if (state.tabId) {
-        this.run(['tab', 'close', state.tabId]);
+      const graceful = options?.graceful === true;
+      if (!graceful) {
+        this.run(['pane', 'close', state.paneId]);
       }
-      // The shared crew-sessions workspace may host other runs: never close it.
+      if (
+        !graceful &&
+        state.tabId &&
+        !this.listStates().some(
+          (other) =>
+            other.mode === 'interactive' && other.tabId === state.tabId && other.name !== name,
+        )
+      ) {
+        this.run(['tab', 'close', state.tabId]);
+        if (state.taskId) {
+          rmSync(layoutPath(this.stateDir, state.taskId), { force: true });
+        }
+      }
       rmSync(this.statePath(name), { force: true });
       return true;
     }

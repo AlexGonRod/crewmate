@@ -42,6 +42,8 @@ export function startInteractive(
     kind?: HerdrAgentKind;
     startupTimeoutMs?: number;
     onEvent?: (message: string) => void;
+    role?: string;
+    taskId?: string;
   },
 ): ReturnType<HerdrBackend['start']> {
   const prompt = buildInteractivePrompt({
@@ -63,6 +65,8 @@ export function startInteractive(
       reportPath: options.reportPath,
       workspaceLabel: 'crew-sessions',
       startupTimeoutMs: options.startupTimeoutMs,
+      role: options.role,
+      taskId: options.taskId,
     },
   });
 }
