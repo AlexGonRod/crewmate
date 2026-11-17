@@ -152,6 +152,7 @@ crew task clean tsk_... --force
 | `crew ui [--port <n>] [--host <host>]` | Sirve un panel web de solo lectura con el estado del crew |
 | `crew sessions list` | Lista las sesiones visibles (tmux o Herdr), su kind y cómo conectarse |
 | `crew sessions kill <name>` | Cierra una sesión visible |
+| `crew sessions focus [name] [--attention]` | Enfoca el tab de Herdr (sesión interactiva) o el workspace (batch), o la tarea en review/blocked/waiting_input más reciente |
 | `crew scout --project <ref> --title <t> --question <pregunta> [--queue]` | Crea una tarea de investigación que produce un informe |
 | `crew memory add --project <ref> --kind <kind> --title <t> --body <texto>` | Añade una nota durable al proyecto |
 | `crew memory search "<texto>" [--project <ref>] [--kind <kind>]` | Búsqueda de texto libre en la memoria |
@@ -430,6 +431,8 @@ ejecuta el orquestador antes de invocar al tester. La salida queda en
 crew task run <id> --session herdr   # o tmux, o auto (por defecto)
 crew sessions list                   # sesiones de los dos backends
 crew sessions kill <name>
+crew sessions focus --attention      # salta a la tarea que necesita ojo
+crew sessions focus crew-<taskId>-developer
 ```
 
 - El agente se ejecuta en una sesión visible para poder observarlo e
@@ -447,6 +450,21 @@ crew sessions kill <name>
   (`--kind opencode` o `--kind pi`). El daemon y la cola también lo aplican
   sin `--session` por tarea.
   `crew sessions list` muestra el kind real y el tab de cada agente.
+- `crew sessions focus --attention` enfoca el tab de la tarea más reciente en
+  `review`, `blocked` o `waiting_input`; si no hay ninguna, dice "No task needs
+  attention" y sale 0, así que sirve como keybinding. `crew sessions focus
+  <name>` enfoca el tab de una sesión interactiva o el workspace de una batch.
+  Con `--json` devuelve `{ focused, taskId, session, tabId, reason }`.
+
+Ejemplo de keybinding en la configuración de Herdr para saltar a la tarea que
+necesita ojo:
+
+```toml
+[[keys.command]]
+key = "prefix+alt+b"
+type = "shell"
+command = "crew sessions focus --attention"
+```
 
 Ver ADR 0023, ADR 0031 y ADR 0047.
 
