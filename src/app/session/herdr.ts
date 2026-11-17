@@ -13,6 +13,7 @@ import { readReportFile, validateReport } from '../../protocol/report';
 import {
   CREW_SESSION_WORKSPACE,
   decideInteractiveRun,
+  sessionTabLabel,
   uniqueAgentName,
   type InteractiveReportState,
 } from './interactive';
@@ -260,6 +261,15 @@ export class HerdrBackend implements SessionBackend {
       };
     }
 
+    // The developer of a task turns this tab into the shared task layout, so
+    // it carries the task title alone; any other run is a single-role tab and
+    // names its role. Without a title both keep the session name.
+    const createsTaskLayout = Boolean(spec.taskId) && spec.role === 'developer';
+    const tabLabel = sessionTabLabel(
+      spec.taskTitle,
+      createsTaskLayout ? null : spec.role,
+      options.name,
+    );
     const created = this.run([
       'tab',
       'create',
@@ -268,7 +278,7 @@ export class HerdrBackend implements SessionBackend {
       '--cwd',
       options.cwd,
       '--label',
-      options.name,
+      tabLabel,
       '--no-focus',
     ]);
     const tabId = created.json?.result?.tab?.tab_id;

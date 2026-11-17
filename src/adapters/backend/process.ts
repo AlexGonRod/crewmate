@@ -31,6 +31,8 @@ export interface InteractiveRunOptions {
   runId: string;
   /** Task the run belongs to; enables the shared 3-pane Herdr task layout. */
   taskId?: string;
+  /** Title of the task, shown in the Herdr tab label. */
+  taskTitle?: string | null;
   /** Harness of the run; it decides the Herdr agent kind. */
   harnessId: string;
   /** Agent startup timeout in ms (config `session.startupTimeoutMs`). */
@@ -119,6 +121,7 @@ async function runSessionProcess(
         startupTimeoutMs: options.interactive.startupTimeoutMs,
         role: options.interactive.role,
         taskId: options.interactive.taskId,
+        taskTitle: options.interactive.taskTitle,
       })
     : undefined;
   const backend = resolveBackend(options.sessionMode ?? 'auto', {

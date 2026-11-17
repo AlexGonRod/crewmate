@@ -44,6 +44,7 @@ export function startInteractive(
     onEvent?: (message: string) => void;
     role?: string;
     taskId?: string;
+    taskTitle?: string | null;
   },
 ): ReturnType<HerdrBackend['start']> {
   const prompt = buildInteractivePrompt({
@@ -67,6 +68,7 @@ export function startInteractive(
       startupTimeoutMs: options.startupTimeoutMs,
       role: options.role,
       taskId: options.taskId,
+      taskTitle: options.taskTitle,
     },
   });
 }

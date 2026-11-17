@@ -259,6 +259,7 @@ export async function runStage(
             role,
             runId: run.id,
             taskId: task.id,
+            taskTitle: task.title,
             harnessId,
             startupTimeoutMs: projectConfig?.session?.startupTimeoutMs,
           }

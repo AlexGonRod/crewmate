@@ -20,6 +20,8 @@ export type { HerdrAgentKind } from './types';
 
 export const CREW_SESSION_WORKSPACE = 'crew-sessions';
 export const MAX_AGENT_NAME_LENGTH = 32;
+/** Longest task title shown in a Herdr tab label, before the role suffix. */
+export const MAX_TAB_TITLE_LENGTH = 60;
 export const AGENT_NAME_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
 
 const SHORT_ROLES: Record<string, string> = {
@@ -88,6 +90,30 @@ export function uniqueAgentName(base: string, taken: Set<string>): string {
 }
 
 /**
+ * The label of a Herdr tab. The shared task tab (no role) shows the task
+ * title, truncated so it stays readable in the tab bar; a tab for a single run
+ * appends the role so two tabs of the same task can be told apart. Without a
+ * title the current label (`crew-<taskId>-<role>`) is kept verbatim: state
+ * files and `crew sessions list` do not depend on the tab label, but the
+ * session name in it is still what the human recognises.
+ */
+export function sessionTabLabel(
+  title: string | null | undefined,
+  role: string | null | undefined,
+  fallback: string,
+): string {
+  const trimmed = title?.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+  const truncated = trimmed.slice(0, MAX_TAB_TITLE_LENGTH);
+  if (!role) {
+    return truncated;
+  }
+  return `${truncated} · ${SHORT_ROLES[role] ?? role}`;
+}
+
+/**
  * The prompt is deliberately short: the brief is the source of truth and the
  * interactive agent reads it by absolute path. The environment variables of
  * the batch process are not inherited by the Herdr pane.
@@ -130,6 +156,8 @@ export interface InteractiveStartInput {
   startupTimeoutMs?: number;
   role?: string;
   taskId?: string;
+  /** Title of the task, shown in the Herdr tab label. */
+  taskTitle?: string | null;
 }
 
 export function interactiveStartOptions(
@@ -144,6 +172,7 @@ export function interactiveStartOptions(
     startupTimeoutMs: input.startupTimeoutMs,
     role: input.role,
     taskId: input.taskId,
+    taskTitle: input.taskTitle,
   };
 }
 

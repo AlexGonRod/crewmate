@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CREW_SESSION_WORKSPACE,
+  MAX_TAB_TITLE_LENGTH,
   assertHerdrKindForHarness,
   buildInteractivePrompt,
   decideInteractiveRun,
@@ -10,6 +11,7 @@ import {
   interactiveStartOptions,
   isValidAgentName,
   resolveInteractiveMode,
+  sessionTabLabel,
   uniqueAgentName,
 } from '../../src/app/session/interactive';
 
@@ -56,6 +58,39 @@ describe('interactive agent names', () => {
     expect(isValidAgentName('Crew')).toBe(false);
     expect(isValidAgentName('crew name')).toBe(false);
     expect(isValidAgentName(`crew-${'a'.repeat(40)}`)).toBe(false);
+  });
+});
+
+describe('session tab label', () => {
+  it('shows the task title on the shared layout tab', () => {
+    expect(sessionTabLabel('Tab de Herdr con el título', null, 'crew-abc-dev')).toBe(
+      'Tab de Herdr con el título',
+    );
+  });
+
+  it('truncates the title of a task tab to 60 characters', () => {
+    const title = 'X'.repeat(80);
+    const label = sessionTabLabel(title, undefined, 'crew-abc-dev');
+    expect(label).toHaveLength(MAX_TAB_TITLE_LENGTH);
+    expect(label).toBe('X'.repeat(60));
+  });
+
+  it('appends a short role to single-run tabs', () => {
+    expect(sessionTabLabel('Arreglo del parser', 'developer', 'crew-abc-dev')).toBe(
+      'Arreglo del parser · dev',
+    );
+    expect(sessionTabLabel('Arreglo del parser', 'tester', 'crew-abc-test')).toBe(
+      'Arreglo del parser · test',
+    );
+    expect(sessionTabLabel('Auditoría', 'scout', 'crew-abc-scout')).toBe(
+      'Auditoría · scout',
+    );
+  });
+
+  it('keeps the session name verbatim when the task has no title', () => {
+    expect(sessionTabLabel(undefined, 'developer', 'crew-abc-dev')).toBe('crew-abc-dev');
+    expect(sessionTabLabel(null, null, 'crew-abc-dev')).toBe('crew-abc-dev');
+    expect(sessionTabLabel('   ', 'tester', 'crew-abc-test')).toBe('crew-abc-test');
   });
 });
 
@@ -116,6 +151,15 @@ describe('interactive harness kind', () => {
       'opencode',
     );
     expect(interactiveStartOptions({ harnessId: 'pi', ...paths }).kind).toBe('pi');
+  });
+
+  it('carries the task title through to the start options', () => {
+    const options = interactiveStartOptions({
+      harnessId: 'opencode',
+      ...paths,
+      taskTitle: 'Tab con el título de la tarea',
+    });
+    expect(options.taskTitle).toBe('Tab con el título de la tarea');
   });
 
   it('fails with a clear error when the harness has no Herdr kind', () => {
