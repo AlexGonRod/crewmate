@@ -2085,8 +2085,15 @@ function buildProgram(): Command {
           'Pass a session name or --attention: crew sessions focus [name] [--attention]',
         );
       }
-      assertHerdrAvailable(backend);
+      // Resolve the session before checking Herdr: an unknown name must be
+      // SESSION_NOT_FOUND even when Herdr is not running.
       const outcome = focusSession(backend, name);
+      if (!outcome.focused && !backend.available()) {
+        throw new CrewError(
+          'HERDR_UNAVAILABLE',
+          'herdr is not available. Start it with "herdr".',
+        );
+      }
       if (!outcome.focused) {
         if (globalOptions().json) {
           printJson(outcome);
