@@ -68,6 +68,8 @@ export interface InteractiveStartOptions {
   role?: string;
   /** Task the run belongs to; enables the shared 3-pane task layout. */
   taskId?: string;
+  /** Title of the task, shown in the Herdr tab label of the run. */
+  taskTitle?: string | null;
 }
 
 export interface WaitSessionOptions {
