@@ -26,6 +26,8 @@ import {
   listAllSessions,
   type SessionMode,
 } from '../app/session';
+import { focusAttentionTask, focusSession, selectAttentionTask, type FocusOutcome } from '../app/session/focus';
+import { assertHerdrAvailable, HerdrBackend } from '../app/session/herdr';
 import { intakeProject } from '../app/intake';
 import { applyPlan, parsePlan, validatePlan } from '../app/plan';
 import { buildProgress, renderProgress } from '../app/progress';
@@ -2015,6 +2017,90 @@ function buildProgram(): Command {
       } else {
         console.log(`Session ${name} closed (${result.backend})`);
       }
+    });
+
+  sessions
+    .command('focus [name]')
+    .description(
+      'focus the Herdr tab (interactive) or workspace (batch) of a session, or the task that needs attention',
+    )
+    .option(
+      '--attention',
+      'focus the most recently updated task in review, blocked or waiting_input',
+    )
+    .action((name: string | undefined, options: { attention?: boolean }) => {
+      const stateDir = sessionStateDir();
+      const backend = new HerdrBackend(stateDir);
+      const emit = (outcome: FocusOutcome): void => {
+        if (globalOptions().json) {
+          printJson(outcome);
+          return;
+        }
+        if (outcome.reason === 'no-attention') {
+          console.log('No task needs attention');
+          return;
+        }
+        if (outcome.reason === 'no-session') {
+          console.log(`No visible session for task ${outcome.taskId}`);
+          return;
+        }
+        if (outcome.focused) {
+          console.log(
+            outcome.tabId
+              ? `Focused tab ${outcome.tabId}${outcome.session ? ` (${outcome.session})` : ''}`
+              : `Focused workspace of ${outcome.session}`,
+          );
+          return;
+        }
+        console.log(`Could not focus ${outcome.session ?? outcome.taskId ?? 'session'}`);
+      };
+
+      if (options.attention) {
+        const context = loadContext({ dbPath: globalOptions().db });
+        const store = new Store(context.paths.dbPath);
+        let tasks: ReturnType<Store['listTasks']>;
+        try {
+          tasks = store.listTasks();
+        } finally {
+          store.close();
+        }
+        if (!selectAttentionTask(tasks)) {
+          emit({
+            focused: false,
+            taskId: null,
+            session: null,
+            tabId: null,
+            reason: 'no-attention',
+          });
+          return;
+        }
+        assertHerdrAvailable(backend);
+        emit(focusAttentionTask(tasks, backend, stateDir));
+        return;
+      }
+
+      if (!name) {
+        throw new CrewError(
+          'INVALID_ARGUMENT',
+          'Pass a session name or --attention: crew sessions focus [name] [--attention]',
+        );
+      }
+      // Resolve the session before checking Herdr: an unknown name must be
+      // SESSION_NOT_FOUND even when Herdr is not running.
+      const outcome = focusSession(backend, name);
+      if (!outcome.focused && !backend.available()) {
+        throw new CrewError(
+          'HERDR_UNAVAILABLE',
+          'herdr is not available. Start it with "herdr".',
+        );
+      }
+      if (!outcome.focused) {
+        if (globalOptions().json) {
+          printJson(outcome);
+        }
+        throw new CrewError('FOCUS_FAILED', `Could not focus session: ${name}`);
+      }
+      emit(outcome);
     });
 
   program

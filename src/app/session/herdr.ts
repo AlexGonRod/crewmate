@@ -24,6 +24,7 @@ import {
   readTaskLayout,
   type TaskLayout,
 } from './layout';
+import type { SessionFocusState } from './focus';
 import {
   buildCommand,
   shellQuote,
@@ -199,6 +200,37 @@ export class HerdrBackend implements SessionBackend {
     }
     // Another crew run may have created it between the list and the create.
     return this.findWorkspace(label)?.id ?? null;
+  }
+
+  /** The focusable state of a session, or null when crew does not know it. */
+  sessionState(name: string): SessionFocusState | null {
+    const state = this.readState(name);
+    if (!state) {
+      return null;
+    }
+    return {
+      mode: state.mode === 'interactive' ? 'interactive' : 'batch',
+      tabId: state.tabId ?? null,
+      workspaceId: state.workspaceId,
+      taskId: state.taskId ?? null,
+    };
+  }
+
+  /** The session name recorded for a task, preferring an interactive run. */
+  sessionForTask(taskId: string): string | null {
+    const states = this.listStates().filter((state) => state.taskId === taskId);
+    const interactive = states.find((state) => state.mode === 'interactive');
+    return interactive?.name ?? states[0]?.name ?? null;
+  }
+
+  /** `herdr tab focus`; false when the tab is gone or Herdr refuses. */
+  focusTab(tabId: string): boolean {
+    return this.run(['tab', 'focus', tabId]).ok;
+  }
+
+  /** `herdr workspace focus`; false when the workspace is gone or Herdr refuses. */
+  focusWorkspace(workspaceId: string): boolean {
+    return this.run(['workspace', 'focus', workspaceId]).ok;
   }
 
   private agentState(agentName: string | null | undefined): string | null {
