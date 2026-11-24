@@ -14,6 +14,9 @@
 import { CrewError } from '../../core/errors';
 import type { Task, TaskState } from '../../core/types';
 import { readTaskLayout } from './layout';
+import type { FocusBackend, FocusOutcome } from './focus-types';
+
+export type { FocusBackend, FocusOutcome, FocusReason, SessionFocusState } from './focus-types';
 
 /** States where a task waits for a human, so a jump makes sense. */
 export const ATTENTION_STATES: TaskState[] = ['review', 'blocked', 'waiting_input'];
@@ -44,38 +47,6 @@ export function selectAttentionTask<T extends Pick<Task, 'id' | 'state' | 'updat
     }
   }
   return selected;
-}
-
-export type FocusReason =
-  | 'attention'
-  | 'interactive'
-  | 'batch'
-  | 'no-attention'
-  | 'no-session'
-  | 'focus-failed';
-
-export interface FocusOutcome {
-  focused: boolean;
-  taskId: string | null;
-  session: string | null;
-  tabId: string | null;
-  reason: FocusReason;
-}
-
-/** The pieces of a session the focus gesture needs. */
-export interface SessionFocusState {
-  mode: 'batch' | 'interactive';
-  tabId: string | null;
-  workspaceId: string;
-  taskId: string | null;
-}
-
-/** The backend surface `focus` uses; HerdrBackend satisfies it. */
-export interface FocusBackend {
-  sessionState(name: string): SessionFocusState | null;
-  sessionForTask(taskId: string): string | null;
-  focusTab(tabId: string): boolean;
-  focusWorkspace(workspaceId: string): boolean;
 }
 
 /**

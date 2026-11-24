@@ -1,109 +1,29 @@
-import { spawnSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import path from 'node:path';
 import { CrewError } from '../../core/errors';
-import { readReportFile, validateReport } from '../../protocol/report';
+import type { SessionFocusState } from './focus-types';
+import { runHerdr } from './herdr-cli';
+import { startInteractive } from './herdr-interactive';
+import { captureSession, sessionPid } from './herdr-capture';
 import {
-  CREW_SESSION_WORKSPACE,
-  decideInteractiveRun,
-  sessionTabLabel,
-  uniqueAgentName,
-  type InteractiveReportState,
-} from './interactive';
-import {
-  isLayoutFileName,
-  layoutPath,
-  paneSplitArgs,
-  readTaskLayout,
-  type TaskLayout,
-} from './layout';
-import type { SessionFocusState } from './focus';
-import {
-  buildCommand,
-  shellQuote,
-} from './tmux';
-import {
-  type HerdrAgentKind,
-  type SessionBackend,
-  type SessionInfo,
-  type SessionRunResult,
-  type SessionStatus,
-  type StartSessionOptions,
-  type WaitSessionOptions,
+  killSession,
+  listSessions,
+  sessionStatus,
+  startBatch,
+} from './herdr-session';
+import { listStates, readState } from './herdr-state';
+import type { HerdrContext, HerdrRunner } from './herdr-types';
+import { waitSession } from './herdr-wait';
+import { focusTab, focusWorkspace } from './herdr-workspaces';
+import type {
+  SessionBackend,
+  SessionInfo,
+  SessionRunResult,
+  SessionStatus,
+  StartSessionOptions,
+  WaitSessionOptions,
 } from './types';
 
-export interface HerdrResponse {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  json: any;
-}
-
-export type HerdrRunner = (args: string[]) => HerdrResponse;
-
-interface HerdrSessionState {
-  name: string;
-  workspaceId: string;
-  paneId: string;
-  exitFile: string | null;
-  taskId: string | null;
-  createdAt: string;
-  mode?: 'batch' | 'interactive';
-  tabId?: string | null;
-  agentName?: string | null;
-  agentKind?: HerdrAgentKind | null;
-  reportPath?: string | null;
-  prompt?: string | null;
-  workspaceLabel?: string | null;
-}
-
-export function runHerdr(args: string[]): HerdrResponse {
-  const result = spawnSync('herdr', args, { encoding: 'utf8' });
-  if (result.error) {
-    return {
-      ok: false,
-      stdout: '',
-      stderr: result.error.message,
-      json: null,
-    };
-  }
-  const stdout = result.stdout ?? '';
-  let json: any = null;
-  try {
-    json = JSON.parse(stdout);
-  } catch {
-    json = null;
-  }
-  return {
-    ok: (result.status ?? 1) === 0,
-    stdout,
-    stderr: result.stderr ?? '',
-    json,
-  };
-}
-
-function reportState(reportPath: string | null | undefined): InteractiveReportState {
-  if (!reportPath) {
-    return 'missing';
-  }
-  try {
-    const raw = readReportFile(reportPath);
-    if (raw === null) {
-      return 'missing';
-    }
-    validateReport(raw);
-    return 'valid';
-  } catch {
-    return 'invalid';
-  }
-}
+export type { HerdrResponse, HerdrRunner } from './herdr-types';
+export { runHerdr } from './herdr-cli';
 
 /**
  * Runs the crew agents inside Herdr instead of tmux.
@@ -111,6 +31,9 @@ function reportState(reportPath: string | null | undefined): InteractiveReportSt
  * A crew session is either a Herdr workspace labelled with the session name,
  * whose root pane runs the agent (batch), or an interactive agent of the run
  * harness in its own tab of the shared `crew-sessions` workspace (ADR 0031).
+ *
+ * The behavior lives in the `herdr-*` modules; this class is the stable
+ * SessionBackend facade and the place where the CLI runner is injected.
  */
 export class HerdrBackend implements SessionBackend {
   readonly id = 'herdr' as const;
@@ -119,6 +42,10 @@ export class HerdrBackend implements SessionBackend {
     private readonly stateDir: string,
     private readonly run: HerdrRunner = runHerdr,
   ) {}
+
+  private context(): HerdrContext {
+    return { run: this.run, stateDir: this.stateDir };
+  }
 
   available(): boolean {
     return this.run(['status', 'server']).ok;
@@ -129,98 +56,9 @@ export class HerdrBackend implements SessionBackend {
     return result.ok ? result.stdout.trim() : '';
   }
 
-  private statePath(name: string): string {
-    return path.join(this.stateDir, `${name}.json`);
-  }
-
-  private readState(name: string): HerdrSessionState | null {
-    const file = this.statePath(name);
-    if (!existsSync(file)) {
-      return null;
-    }
-    try {
-      return JSON.parse(readFileSync(file, 'utf8')) as HerdrSessionState;
-    } catch {
-      return null;
-    }
-  }
-
-  private writeState(state: HerdrSessionState): void {
-    mkdirSync(this.stateDir, { recursive: true });
-    writeFileSync(this.statePath(state.name), JSON.stringify(state, null, 2), 'utf8');
-  }
-
-  private listStates(): HerdrSessionState[] {
-    try {
-      return readdirSync(this.stateDir)
-        .filter((entry) => entry.endsWith('.json') && !isLayoutFileName(entry))
-        .map((entry) => this.readState(entry.replace(/\.json$/, '')))
-        .filter((state): state is HerdrSessionState => state !== null);
-    } catch {
-      return [];
-    }
-  }
-
-  private findWorkspace(label: string): { id: string; paneId?: string } | null {
-    const listed = this.run(['workspace', 'list']);
-    if (!listed.ok || !listed.json?.result?.workspaces) {
-      return null;
-    }
-    const workspace = (listed.json.result.workspaces as Array<{ label?: string; workspace_id: string }>).find(
-      (item) => item.label === label,
-    );
-    if (!workspace) {
-      return null;
-    }
-    const panes = this.run(['pane', 'list', '--workspace', workspace.workspace_id]);
-    const first = panes.json?.result?.panes?.[0];
-    // A workspace whose tabs were all closed still exists: report it without
-    // a pane so the caller creates a new tab instead of a duplicate workspace.
-    return {
-      id: workspace.workspace_id,
-      paneId: first?.pane_id as string | undefined,
-    };
-  }
-
-  /**
-   * The workspace for a session plus the tab and root pane that Herdr creates
-   * with it. Reusing that tab avoids leaving an empty first tab: `workspace
-   * create` already opens one, so a following `tab create` would stack a
-   * second tab next to it.
-   */
-  private ensureWorkspace(
-    label: string,
-    cwd: string,
-  ): { id: string; tabId?: string; paneId?: string } | null {
-    const existing = this.findWorkspace(label);
-    if (existing) {
-      return { id: existing.id };
-    }
-    const created = this.run([
-      'workspace',
-      'create',
-      '--cwd',
-      cwd,
-      '--label',
-      label,
-      '--no-focus',
-    ]);
-    const id = created.json?.result?.workspace?.workspace_id;
-    if (created.ok && id) {
-      return {
-        id: id as string,
-        tabId: created.json?.result?.tab?.tab_id as string | undefined,
-        paneId: created.json?.result?.root_pane?.pane_id as string | undefined,
-      };
-    }
-    // Another crew run may have created it between the list and the create.
-    const fallback = this.findWorkspace(label);
-    return fallback ? { id: fallback.id } : null;
-  }
-
   /** The focusable state of a session, or null when crew does not know it. */
   sessionState(name: string): SessionFocusState | null {
-    const state = this.readState(name);
+    const state = readState(this.stateDir, name);
     if (!state) {
       return null;
     }
@@ -234,293 +72,17 @@ export class HerdrBackend implements SessionBackend {
 
   /** The session name recorded for a task, preferring an interactive run. */
   sessionForTask(taskId: string): string | null {
-    const states = this.listStates().filter((state) => state.taskId === taskId);
+    const states = listStates(this.stateDir).filter((state) => state.taskId === taskId);
     const interactive = states.find((state) => state.mode === 'interactive');
     return interactive?.name ?? states[0]?.name ?? null;
   }
 
-  /** `herdr tab focus`; false when the tab is gone or Herdr refuses. */
   focusTab(tabId: string): boolean {
-    return this.run(['tab', 'focus', tabId]).ok;
+    return focusTab(this.run, tabId);
   }
 
-  /** `herdr workspace focus`; false when the workspace is gone or Herdr refuses. */
   focusWorkspace(workspaceId: string): boolean {
-    return this.run(['workspace', 'focus', workspaceId]).ok;
-  }
-
-  private agentState(agentName: string | null | undefined): string | null {
-    if (!agentName) {
-      return null;
-    }
-    const agent = this.run(['agent', 'get', agentName]);
-    const state = agent.json?.result?.agent?.agent_status;
-    return agent.ok && typeof state === 'string' ? state : null;
-  }
-
-  private splitPane(paneId: string, direction: 'right' | 'down', cwd: string): string | null {
-    const result = this.run(paneSplitArgs(paneId, direction, cwd));
-    return result.json?.result?.pane?.pane_id ?? null;
-  }
-
-  private paneExists(paneId: string): boolean {
-    return this.run(['pane', 'get', paneId]).ok;
-  }
-
-  private saveLayout(layout: TaskLayout): void {
-    mkdirSync(this.stateDir, { recursive: true });
-    writeFileSync(layoutPath(this.stateDir, layout.taskId), JSON.stringify(layout, null, 2), 'utf8');
-  }
-
-  /** The task layout, as long as its tab is still alive in Herdr. */
-  private reusableLayout(taskId: string): TaskLayout | null {
-    const layout = readTaskLayout(this.stateDir, taskId);
-    if (!layout) {
-      return null;
-    }
-    return this.run(['tab', 'get', layout.tabId]).ok ? layout : null;
-  }
-
-  private agentNameFor(spec: { baseName: string }): string {
-    const listed = this.run(['agent', 'list']);
-    const taken = new Set<string>();
-    for (const agent of listed.json?.result?.agents ?? []) {
-      if (typeof agent.name === 'string') {
-        taken.add(agent.name);
-      }
-    }
-    return uniqueAgentName(spec.baseName, taken);
-  }
-
-  private startInteractive(
-    options: StartSessionOptions,
-    spec: NonNullable<StartSessionOptions['interactive']>,
-  ): { ok: boolean; error?: string } {
-    const layout = spec.taskId ? this.reusableLayout(spec.taskId) : null;
-    if (layout && (spec.role === 'developer' || spec.role === 'tester')) {
-      return this.startInteractiveInLayout(options, spec, layout);
-    }
-
-    const workspace = this.ensureWorkspace(spec.workspaceLabel, options.cwd);
-    if (!workspace) {
-      return {
-        ok: false,
-        error: `Could not find or create the herdr workspace ${spec.workspaceLabel}`,
-      };
-    }
-    const workspaceId = workspace.id;
-
-    // The developer of a task turns this tab into the shared task layout, so
-    // it carries the task title alone; any other run is a single-role tab and
-    // names its role. Without a title both keep the session name.
-    const createsTaskLayout = Boolean(spec.taskId) && spec.role === 'developer';
-    const tabLabel = sessionTabLabel(
-      spec.taskTitle,
-      createsTaskLayout ? null : spec.role,
-      options.name,
-    );
-    let tabId: string;
-    let paneId: string;
-    if (workspace.tabId && workspace.paneId) {
-      // A fresh workspace already opened a tab and a root pane: rename that
-      // tab and use it instead of creating a second one.
-      tabId = workspace.tabId;
-      paneId = workspace.paneId;
-      this.run(['tab', 'rename', tabId, tabLabel]);
-    } else {
-      const created = this.run([
-        'tab',
-        'create',
-        '--workspace',
-        workspaceId,
-        '--cwd',
-        options.cwd,
-        '--label',
-        tabLabel,
-        '--no-focus',
-      ]);
-      tabId = created.json?.result?.tab?.tab_id as string;
-      paneId = created.json?.result?.root_pane?.pane_id as string;
-      if (!created.ok || !tabId || !paneId) {
-        return {
-          ok: false,
-          error: `Could not create the herdr tab for ${options.name}: ${
-            created.stderr.trim() || 'unknown error'
-          }`,
-        };
-      }
-    }
-
-    // The 3-pane task layout is created with the developer run: one split to
-    // the right reserves the reviewer column, one split down divides the left
-    // column into developer (top) and tester (bottom). Both with --no-focus,
-    // so the calling pane keeps its focus.
-    if (spec.taskId && spec.role === 'developer') {
-      const reviewerPaneId = this.splitPane(paneId, 'right', options.cwd);
-      const testerPaneId = reviewerPaneId ? this.splitPane(paneId, 'down', options.cwd) : null;
-      if (reviewerPaneId && testerPaneId) {
-        this.saveLayout({
-          schema: 'crew.herdr-layout/v1',
-          taskId: spec.taskId,
-          workspaceId,
-          tabId,
-          developerPaneId: paneId,
-          testerPaneId,
-          reviewerPaneId,
-          createdAt: new Date().toISOString(),
-        });
-        options.onEvent?.(
-          `task layout created: dev=${paneId} test=${testerPaneId} review=${reviewerPaneId}`,
-        );
-      } else {
-        options.onEvent?.('task layout unavailable: falling back to one tab per run');
-      }
-    }
-    const agentName = this.agentNameFor(spec);
-    const startupTimeoutMs = spec.startupTimeoutMs ?? 30000;
-
-    const started = this.run([
-      'agent',
-      'start',
-      agentName,
-      '--kind',
-      spec.kind,
-      '--pane',
-      paneId,
-      '--timeout',
-      String(startupTimeoutMs),
-    ]);
-    if (!started.ok) {
-      this.run(['tab', 'close', tabId]);
-      return {
-        ok: false,
-        error: `Could not start the ${spec.kind} agent ${agentName}: ${
-          started.stderr.trim() || 'unknown error'
-        }`,
-      };
-    }
-    const ready = this.run([
-      'agent',
-      'wait',
-      agentName,
-      '--until',
-      'idle',
-      '--timeout',
-      String(startupTimeoutMs),
-    ]);
-    if (!ready.ok) {
-      this.run(['tab', 'close', tabId]);
-      return {
-        ok: false,
-        error: `The ${spec.kind} agent ${agentName} did not become idle: ${
-          ready.stderr.trim() || 'unknown error'
-        }`,
-      };
-    }
-
-    this.writeState({
-      name: options.name,
-      workspaceId,
-      paneId,
-      exitFile: null,
-      taskId: spec.taskId ?? options.name.replace(/^crew-/, '').split('-')[0] ?? null,
-      createdAt: new Date().toISOString(),
-      mode: 'interactive',
-      tabId,
-      agentName,
-      agentKind: spec.kind,
-      reportPath: spec.reportPath,
-      prompt: spec.prompt,
-      workspaceLabel: spec.workspaceLabel,
-    });
-    options.onEvent?.(`herdr tab created: ${tabId} (workspace ${workspaceId})`);
-    options.onEvent?.(`${spec.kind} agent started: ${agentName} (pane ${paneId})`);
-    return { ok: true };
-  }
-
-  /**
-   * Starts a run inside the shared task layout: the developer takes the
-   * top-left pane, the tester the bottom-left one, and no new tab is created.
-   * A missing tab (or a closed developer pane after a retry) rebuilds the
-   * layout instead of stacking a second tab for the same task.
-   */
-  private startInteractiveInLayout(
-    options: StartSessionOptions,
-    spec: NonNullable<StartSessionOptions['interactive']>,
-    layout: TaskLayout,
-  ): { ok: boolean; error?: string } {
-    const isTester = spec.role === 'tester';
-    let paneId = isTester ? layout.testerPaneId : layout.developerPaneId;
-    if (!this.paneExists(paneId)) {
-      if (isTester && this.paneExists(layout.developerPaneId)) {
-        const rebuilt = this.splitPane(layout.developerPaneId, 'down', options.cwd);
-        if (!rebuilt) {
-          return { ok: false, error: `Could not rebuild the tester pane of the task layout` };
-        }
-        paneId = rebuilt;
-        this.saveLayout({ ...layout, testerPaneId: rebuilt });
-      } else {
-        // The layout cannot host this run: drop it so a fresh tab is built.
-        rmSync(layoutPath(this.stateDir, layout.taskId), { force: true });
-        return this.startInteractive(options, spec);
-      }
-    }
-
-    const agentName = this.agentNameFor(spec);
-    const started = this.run([
-      'agent',
-      'start',
-      agentName,
-      '--kind',
-      spec.kind,
-      '--pane',
-      paneId,
-      '--timeout',
-      '30000',
-    ]);
-    if (!started.ok) {
-      return {
-        ok: false,
-        error: `Could not start the ${spec.kind} agent ${agentName} in the task layout: ${
-          started.stderr.trim() || 'unknown error'
-        }`,
-      };
-    }
-    const ready = this.run([
-      'agent',
-      'wait',
-      agentName,
-      '--until',
-      'idle',
-      '--timeout',
-      '30000',
-    ]);
-    if (!ready.ok) {
-      return {
-        ok: false,
-        error: `The ${spec.kind} agent ${agentName} did not become idle: ${
-          ready.stderr.trim() || 'unknown error'
-        }`,
-      };
-    }
-
-    this.writeState({
-      name: options.name,
-      workspaceId: layout.workspaceId,
-      paneId,
-      exitFile: null,
-      taskId: layout.taskId,
-      createdAt: new Date().toISOString(),
-      mode: 'interactive',
-      tabId: layout.tabId,
-      agentName,
-      agentKind: spec.kind,
-      reportPath: spec.reportPath,
-      prompt: spec.prompt,
-      workspaceLabel: spec.workspaceLabel,
-    });
-    options.onEvent?.(`${spec.kind} agent started: ${agentName} (pane ${paneId}, tab ${layout.tabId})`);
-    return { ok: true };
+    return focusWorkspace(this.run, workspaceId);
   }
 
   start(options: StartSessionOptions): { ok: boolean; error?: string } {
@@ -532,376 +94,33 @@ export class HerdrBackend implements SessionBackend {
       };
     }
     if (options.interactive) {
-      return this.startInteractive(options, options.interactive);
+      return startInteractive(this.context(), options, options.interactive);
     }
-    const existing = this.findWorkspace(options.name);
-    if (existing) {
-      if (existing.paneId) {
-        this.run(['pane', 'close', existing.paneId]);
-      }
-      this.run(['workspace', 'close', existing.id]);
-    }
-
-    const created = this.run([
-      'workspace',
-      'create',
-      '--cwd',
-      options.cwd,
-      '--label',
-      options.name,
-      '--no-focus',
-    ]);
-    const paneId = created.json?.result?.root_pane?.pane_id;
-    const workspaceId = created.json?.result?.workspace?.workspace_id;
-    if (!created.ok || !paneId || !workspaceId) {
-      return {
-        ok: false,
-        error: `Could not create the herdr workspace ${options.name}: ${
-          created.stderr.trim() || 'unknown error'
-        }`,
-      };
-    }
-
-    const exitFile = options.exitFile ?? null;
-    // The command is written to a script file instead of being typed into the
-    // pane: a terminal line is limited to a few kilobytes, and the crew
-    // command carries the whole environment.
-    const scriptFile = path.join(
-      exitFile ? path.dirname(exitFile) : this.stateDir,
-      'session.sh',
-    );
-    mkdirSync(path.dirname(scriptFile), { recursive: true });
-    const command = buildCommand(options.command, options.args, options.env);
-    const stdin = options.stdinPath ? ` < ${shellQuote(options.stdinPath)}` : '';
-    const record = exitFile ? `printf '%s' "$?" > ${shellQuote(exitFile)}` : 'true';
-    writeFileSync(scriptFile, `#!/bin/sh\n${command}${stdin}\n${record}\n`, 'utf8');
-    const run = this.run(['pane', 'run', paneId, `sh ${shellQuote(scriptFile)}`]);
-    if (!run.ok) {
-      this.run(['workspace', 'close', workspaceId]);
-      return {
-        ok: false,
-        error: `Could not run the agent in herdr: ${
-          run.stderr.trim() || 'unknown error'
-        }`,
-      };
-    }
-
-    this.writeState({
-      name: options.name,
-      workspaceId,
-      paneId,
-      exitFile,
-      taskId: options.name.replace(/^crew-/, '').split('-')[0] ?? null,
-      createdAt: new Date().toISOString(),
-      mode: 'batch',
-    });
-    return { ok: true };
+    return startBatch(this.context(), options);
   }
 
   pid(name: string): number | null {
-    const state = this.readState(name);
-    if (!state) {
-      return null;
-    }
-    const info = this.run(['pane', 'process-info', '--pane', state.paneId]);
-    const processes = info.json?.result?.process_info?.foreground_processes;
-    const pid = processes?.[0]?.pid ?? info.json?.result?.process_info?.shell_pid;
-    return typeof pid === 'number' && pid > 0 ? pid : null;
+    return sessionPid(this.context(), name);
   }
 
   capture(name: string): string {
-    const state = this.readState(name);
-    if (!state) {
-      return '';
-    }
-    if (state.mode === 'interactive' && state.agentName) {
-      const result = this.run([
-        'agent',
-        'read',
-        state.agentName,
-        '--source',
-        'recent-unwrapped',
-        '--lines',
-        '200',
-      ]);
-      if (result.ok) {
-        return result.stdout;
-      }
-    }
-    const result = this.run([
-      'pane',
-      'read',
-      state.paneId,
-      '--source',
-      'recent-unwrapped',
-      '--lines',
-      '200',
-    ]);
-    return result.ok ? result.stdout : '';
+    return captureSession(this.context(), name);
   }
 
   status(name: string): SessionStatus {
-    const state = this.readState(name);
-    if (!state) {
-      return { dead: true, exitCode: null, agentState: null };
-    }
-    if (state.mode === 'interactive') {
-      const agentState = this.agentState(state.agentName);
-      const decision = decideInteractiveRun({
-        report: reportState(state.reportPath),
-        agentState,
-        timedOut: false,
-      });
-      return { dead: decision.done, exitCode: decision.exitCode, agentState };
-    }
-    if (state.exitFile && existsSync(state.exitFile)) {
-      const raw = readFileSync(state.exitFile, 'utf8').trim();
-      const exitCode = Number(raw);
-      return {
-        dead: true,
-        exitCode: Number.isFinite(exitCode) ? exitCode : null,
-        agentState: null,
-      };
-    }
-    const pane = this.run(['pane', 'get', state.paneId]);
-    const agentState = pane.json?.result?.pane?.agent_status ?? null;
-    return {
-      dead: !pane.ok && agentState === null,
-      exitCode: null,
-      agentState: typeof agentState === 'string' ? agentState : null,
-    };
+    return sessionStatus(this.context(), name);
   }
 
-  private waitInteractive(
-    name: string,
-    state: HerdrSessionState,
-    options: WaitSessionOptions,
-  ): Promise<SessionRunResult> {
-    const pollMs = Math.max(100, options.pollMs ?? 500);
-    const deadline = Date.now() + Math.max(0, options.timeoutMs);
-    const agentName = state.agentName ?? '';
-    let prompted = false;
-    let timedOut = false;
-    let lastSignature = '';
-
-    return new Promise((resolve) => {
-      const finish = (exitCode: number | null): void => {
-        clearInterval(timer);
-        options.signal?.removeEventListener('abort', onAbort);
-        const output = this.capture(name);
-        this.kill(name, { graceful: exitCode === 0 });
-        resolve({ exitCode, output, timedOut });
-      };
-      const onAbort = (): void => {
-        timedOut = true;
-        options.onEvent?.('interactive run aborted');
-        finish(null);
-      };
-      const timer = setInterval(() => {
-        if (!prompted) {
-          prompted = true;
-          // `--wait` makes Herdr confirm the agent picked the prompt up (it
-          // must show `working` or `blocked`), so a settled state that is
-          // still the one before the prompt cannot be mistaken for the end.
-          // The timeout is short: the run loop keeps polling afterwards.
-          const sent = this.run([
-            'agent',
-            'prompt',
-            agentName,
-            state.prompt ?? '',
-            '--wait',
-            '--until',
-            'working',
-            '--until',
-            'blocked',
-            '--timeout',
-            '5000',
-          ]);
-          if (!sent.ok) {
-            // A stalled prompt may still have been delivered (Herdr does not
-            // guarantee it was not); the report and the agent state decide.
-            options.onEvent?.(
-              `prompt to ${agentName} not confirmed: ${sent.stderr.trim() || 'unknown error'}`,
-            );
-          } else {
-            options.onEvent?.(`prompt sent to ${agentName}`);
-          }
-        }
-        const agentState = this.agentState(agentName);
-        const report = reportState(state.reportPath);
-        const signature = `${agentState ?? 'unknown'}:${report}`;
-        if (signature !== lastSignature) {
-          lastSignature = signature;
-          options.onEvent?.(
-            `agent ${agentName}: state=${agentState ?? 'unknown'} report=${report}`,
-          );
-        }
-        const decision = decideInteractiveRun({
-          report,
-          agentState,
-          timedOut: false,
-        });
-        if (decision.done) {
-          if (decision.reason === 'blocked') {
-            options.onEvent?.(`agent ${agentName} is blocked`);
-          }
-          if (decision.exitCode === 0) {
-            options.onEvent?.(`report detected: ${state.reportPath ?? ''}`);
-          }
-          finish(decision.exitCode);
-          return;
-        }
-        if (Date.now() >= deadline) {
-          timedOut = true;
-          options.onEvent?.(`interactive run timed out after ${options.timeoutMs}ms`);
-          finish(null);
-        }
-      }, pollMs);
-      options.signal?.addEventListener('abort', onAbort, { once: true });
-      if (options.signal?.aborted) {
-        onAbort();
-      }
-    });
+  wait(name: string, options: WaitSessionOptions): Promise<SessionRunResult> {
+    return waitSession(this.context(), name, options);
   }
 
-  async wait(name: string, options: WaitSessionOptions): Promise<SessionRunResult> {
-    const state = this.readState(name);
-    if (state?.mode === 'interactive') {
-      return this.waitInteractive(name, state, options);
-    }
-    const pollMs = Math.max(100, options.pollMs ?? 400);
-    const deadline = Date.now() + Math.max(0, options.timeoutMs);
-    return new Promise((resolve) => {
-      let timedOut = false;
-      const finish = (exitCode: number | null): void => {
-        clearInterval(timer);
-        options.signal?.removeEventListener('abort', onAbort);
-        resolve({
-          exitCode,
-          output: this.capture(name),
-          timedOut,
-        });
-      };
-      const onAbort = (): void => {
-        timedOut = true;
-        this.kill(name);
-        finish(null);
-      };
-      const timer = setInterval(() => {
-        const status = this.status(name);
-        if (status.dead) {
-          finish(status.exitCode);
-          return;
-        }
-        if (Date.now() >= deadline) {
-          timedOut = true;
-          this.kill(name);
-          finish(null);
-        }
-      }, pollMs);
-      options.signal?.addEventListener('abort', onAbort, { once: true });
-      if (options.signal?.aborted) {
-        onAbort();
-      }
-    });
-  }
-
-  /**
-   * Stops a session. A graceful finish (the report was written and the agent
-   * settled) leaves the agent idle in its pane and the task tab alive: the
-   * reviewer surface still needs the layout, and the human can read the
-   * conversation. Any other outcome closes the pane (stopping the agent) and,
-   * when no other run of the task remains, the tab and the layout with it.
-   * The shared crew-sessions workspace is never closed.
-   */
   kill(name: string, options?: { graceful?: boolean }): boolean {
-    const state = this.readState(name);
-    if (!state) {
-      return false;
-    }
-    if (state.mode === 'interactive') {
-      const graceful = options?.graceful === true;
-      if (!graceful) {
-        this.run(['pane', 'close', state.paneId]);
-      }
-      if (
-        !graceful &&
-        state.tabId &&
-        !this.listStates().some(
-          (other) =>
-            other.mode === 'interactive' && other.tabId === state.tabId && other.name !== name,
-        )
-      ) {
-        this.run(['tab', 'close', state.tabId]);
-        if (state.taskId) {
-          rmSync(layoutPath(this.stateDir, state.taskId), { force: true });
-        }
-      }
-      rmSync(this.statePath(name), { force: true });
-      return true;
-    }
-    this.run(['pane', 'close', state.paneId]);
-    this.run(['workspace', 'close', state.workspaceId]);
-    rmSync(this.statePath(name), { force: true });
-    return true;
+    return killSession(this.context(), name, options);
   }
 
   list(): SessionInfo[] {
-    const sessions: SessionInfo[] = [];
-    const seen = new Set<string>();
-    for (const state of this.listStates()) {
-      if (state.mode !== 'interactive') {
-        continue;
-      }
-      seen.add(state.name);
-      const status = this.status(state.name);
-      sessions.push({
-        name: state.name,
-        taskId: state.taskId,
-        command: `herdr agent ${state.agentName ?? 'unknown'}${
-          state.agentKind ? ` --kind ${state.agentKind}` : ''
-        }`,
-        createdAt: state.createdAt,
-        dead: status.dead,
-        exitCode: status.exitCode,
-        backend: 'herdr',
-        agentState: status.agentState,
-        agentKind: state.agentKind ?? null,
-        attach: `herdr (tab ${state.tabId ?? '-'})`,
-      });
-    }
-
-    const listed = this.run(['workspace', 'list']);
-    if (!listed.ok || !listed.json?.result?.workspaces) {
-      return sessions;
-    }
-    for (const workspace of listed.json.result.workspaces as Array<{
-      label?: string;
-      workspace_id: string;
-    }>) {
-      const label = workspace.label ?? '';
-      if (!label.startsWith('crew-') || seen.has(label)) {
-        continue;
-      }
-      if (label === CREW_SESSION_WORKSPACE) {
-        continue;
-      }
-      const state = this.readState(label);
-      const status = this.status(label);
-      sessions.push({
-        name: label,
-        taskId: state?.taskId ?? label.replace(/^crew-/, '').split('-')[0] ?? null,
-        command: state ? 'herdr pane' : 'herdr workspace',
-        createdAt: state?.createdAt ?? null,
-        dead: status.dead,
-        exitCode: status.exitCode,
-        backend: 'herdr',
-        agentState: status.agentState,
-        agentKind: null,
-        attach: `herdr (workspace ${workspace.workspace_id})`,
-      });
-    }
-    return sessions;
+    return listSessions(this.context());
   }
 }
 
