@@ -46,7 +46,6 @@ export default tseslint.config(
       'src/app/role-agents.ts',
       'src/app/run-stage.ts',
       'src/app/service.ts',
-      'src/app/session/herdr.ts',
       'src/app/workspace.ts',
       'src/brief/brief.ts',
       'src/ci/ci.ts',

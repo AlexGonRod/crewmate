@@ -36,8 +36,10 @@ describe('Herdr task layout (3 panes per task)', () => {
     });
 
     expect(started.ok).toBe(true);
-    expect(fake.calls.filter((call) => call[0] === 'tab' && call[1] === 'create')).toHaveLength(1);
+    // The workspace's own tab is reused, so no second (empty) tab is created.
+    expect(fake.calls.filter((call) => call[0] === 'tab' && call[1] === 'create')).toHaveLength(0);
     const tabId = createdTab(events);
+    expect(new Set(fake.tabs.map((tab) => tab.tab_id))).toEqual(new Set([tabId]));
     const panes = fake.tabs.filter((tab) => tab.tab_id === tabId);
     expect(panes).toHaveLength(3);
     const splits = fake.calls.filter((call) => call[0] === 'pane' && call[1] === 'split');
@@ -145,7 +147,10 @@ describe('Herdr task layout (3 panes per task)', () => {
       role: 'developer',
     });
     expect(started.ok).toBe(true);
-    expect(fake.calls.filter((call) => call[0] === 'tab' && call[1] === 'create')).toHaveLength(2);
+    // The workspace survived with no tabs, so crew adds one tab there instead
+    // of creating a duplicate workspace (or an empty first tab).
+    expect(fake.calls.filter((call) => call[0] === 'workspace' && call[1] === 'create')).toHaveLength(1);
+    expect(fake.calls.filter((call) => call[0] === 'tab' && call[1] === 'create')).toHaveLength(1);
   });
 
   it('a graceful finish keeps the tab; killing the last run closes it and the layout', async () => {

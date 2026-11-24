@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { HerdrResponse } from '../../src/app/session/herdr';
 import { splitAndPluginPaneHandler } from './fake-herdr-split';
+import { workspaceAndTabHandler } from './fake-herdr-workspace';
 import {
   failure,
   option,
@@ -31,8 +32,7 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
     workspaceCloses: [],
     pluginPanes: [],
   };
-  let nextWorkspace = 1;
-  let nextTab = 1;
+  const counters = { nextWorkspace: 1, nextTab: 1 };
   const nextPane = { value: 1 };
 
   const findAgent = (target: string): FakeAgent | undefined =>
@@ -44,59 +44,15 @@ export function createFakeHerdr(options: FakeHerdrOptions = {}): FakeHerdr {
     if (splitResult) {
       return splitResult;
     }
+    const workspaceResult = workspaceAndTabHandler(fake, counters, args);
+    if (workspaceResult) {
+      return workspaceResult;
+    }
     if (args[0] === '--version') {
       return { ok: true, stdout: 'herdr 0.9.5\n', stderr: '', json: null };
     }
     if (args[0] === 'status' && args[1] === 'server') {
       return response({ type: 'server_status', status: 'running' });
-    }
-    if (args[0] === 'workspace' && args[1] === 'list') {
-      return response({ type: 'workspace_list', workspaces: fake.workspaces });
-    }
-    if (args[0] === 'workspace' && args[1] === 'create') {
-      const id = `w${nextWorkspace++}`;
-      const label = option(args, '--label') ?? id;
-      const paneId = `${id}:p1`;
-      fake.workspaces.push({ workspace_id: id, label });
-      fake.tabs.push({
-        tab_id: `${id}:t1`,
-        workspace_id: id,
-        label: '1',
-        cwd: option(args, '--cwd') ?? process.cwd(),
-        pane_id: paneId,
-      });
-      return response({
-        type: 'workspace_created',
-        workspace: { workspace_id: id, label },
-        root_pane: { pane_id: paneId, workspace_id: id },
-      });
-    }
-    if (args[0] === 'workspace' && args[1] === 'close') {
-      fake.workspaceCloses.push(args[2] ?? '');
-      fake.workspaces = fake.workspaces.filter((item) => item.workspace_id !== args[2]);
-      return response({ type: 'workspace_closed' });
-    }
-    if (args[0] === 'tab' && args[1] === 'create') {
-      const workspaceId = option(args, '--workspace') ?? '';
-      const id = `${workspaceId}:t${++nextTab}`;
-      const paneId = `${workspaceId}:p${nextTab}`;
-      fake.tabs.push({
-        tab_id: id,
-        workspace_id: workspaceId,
-        label: option(args, '--label') ?? 'new',
-        cwd: option(args, '--cwd') ?? process.cwd(),
-        pane_id: paneId,
-      });
-      return response({
-        type: 'tab_created',
-        tab: { tab_id: id, workspace_id: workspaceId },
-        root_pane: { pane_id: paneId, workspace_id: workspaceId },
-      });
-    }
-    if (args[0] === 'tab' && args[1] === 'close') {
-      fake.tabs = fake.tabs.filter((tab) => tab.tab_id !== args[2]);
-      fake.agents = fake.agents.filter((agent) => agent.tab_id !== args[2]);
-      return response({ type: 'tab_closed' });
     }
     if (args[0] === 'agent' && args[1] === 'list') {
       return response({ type: 'agent_list', agents: fake.agents });
