@@ -7,30 +7,36 @@ import { cleanupDirs, report, startInteractive, tempDir } from './session-herdr-
 afterEach(cleanupDirs);
 
 describe('HerdrBackend interactive mode', () => {
-  it('creates a tab with the worktree cwd and starts the agent kind of the harness', () => {
+  it('reuses the tab herdr opens with the workspace instead of adding an empty one', () => {
     const dir = tempDir();
     const worktree = path.join(dir, 'worktree');
     const reportPath = path.join(worktree, '.crew', 'reports', 'run_1.json');
     const fake = createFakeHerdr({ promptBehavior: 'report', reportPath, report: report() });
     const backend = new HerdrBackend(path.join(dir, 'state'), fake.run);
 
+    const name = 'crew-tsk_01M6VCD1QSK57YAKYTPG9M55G6-developer';
     const started = startInteractive(backend, {
-      name: 'crew-tsk_01M6VCD1QSK57YAKYTPG9M55G6-developer',
+      name,
       worktree,
       reportPath,
       kind: 'opencode',
     });
 
     expect(started.ok).toBe(true);
-    const tab = fake.calls.find((call) => call[0] === 'tab' && call[1] === 'create');
-    expect(tab).toBeDefined();
-    expect(tab).toContain('--cwd');
-    expect(tab?.[tab.indexOf('--cwd') + 1]).toBe(worktree);
+    const workspace = fake.calls.find((call) => call[0] === 'workspace' && call[1] === 'create');
+    expect(workspace).toBeDefined();
+    expect(workspace?.[workspace.indexOf('--cwd') + 1]).toBe(worktree);
+    // The workspace already opens one tab: crew renames it instead of stacking
+    // a second, empty one next to it.
+    expect(fake.calls.some((call) => call[0] === 'tab' && call[1] === 'create')).toBe(false);
+    const rename = fake.calls.find((call) => call[0] === 'tab' && call[1] === 'rename');
+    expect(rename?.[3]).toBe(name);
     const agent = fake.calls.find((call) => call[0] === 'agent' && call[1] === 'start');
     expect(agent).toContain('--kind');
     expect(agent?.[agent.indexOf('--kind') + 1]).toBe('opencode');
-    const runTab = fake.tabs.find((item) => item.label === 'crew-tsk_01M6VCD1QSK57YAKYTPG9M55G6-developer');
+    const runTab = fake.tabs.find((item) => item.label === name);
     expect(runTab?.cwd).toBe(worktree);
+    expect(agent?.[agent.indexOf('--pane') + 1]).toBe(runTab?.pane_id);
     expect(fake.agents[0]?.name).toMatch(/^[a-z][a-z0-9_-]{0,31}$/);
   });
 

@@ -161,7 +161,7 @@ export class HerdrBackend implements SessionBackend {
     }
   }
 
-  private findWorkspace(label: string): { id: string; paneId: string } | null {
+  private findWorkspace(label: string): { id: string; paneId?: string } | null {
     const listed = this.run(['workspace', 'list']);
     if (!listed.ok || !listed.json?.result?.workspaces) {
       return null;
@@ -174,16 +174,27 @@ export class HerdrBackend implements SessionBackend {
     }
     const panes = this.run(['pane', 'list', '--workspace', workspace.workspace_id]);
     const first = panes.json?.result?.panes?.[0];
-    if (!first?.pane_id) {
-      return null;
-    }
-    return { id: workspace.workspace_id, paneId: first.pane_id as string };
+    // A workspace whose tabs were all closed still exists: report it without
+    // a pane so the caller creates a new tab instead of a duplicate workspace.
+    return {
+      id: workspace.workspace_id,
+      paneId: first?.pane_id as string | undefined,
+    };
   }
 
-  private ensureWorkspace(label: string, cwd: string): string | null {
+  /**
+   * The workspace for a session plus the tab and root pane that Herdr creates
+   * with it. Reusing that tab avoids leaving an empty first tab: `workspace
+   * create` already opens one, so a following `tab create` would stack a
+   * second tab next to it.
+   */
+  private ensureWorkspace(
+    label: string,
+    cwd: string,
+  ): { id: string; tabId?: string; paneId?: string } | null {
     const existing = this.findWorkspace(label);
     if (existing) {
-      return existing.id;
+      return { id: existing.id };
     }
     const created = this.run([
       'workspace',
@@ -196,10 +207,15 @@ export class HerdrBackend implements SessionBackend {
     ]);
     const id = created.json?.result?.workspace?.workspace_id;
     if (created.ok && id) {
-      return id as string;
+      return {
+        id: id as string,
+        tabId: created.json?.result?.tab?.tab_id as string | undefined,
+        paneId: created.json?.result?.root_pane?.pane_id as string | undefined,
+      };
     }
     // Another crew run may have created it between the list and the create.
-    return this.findWorkspace(label)?.id ?? null;
+    const fallback = this.findWorkspace(label);
+    return fallback ? { id: fallback.id } : null;
   }
 
   /** The focusable state of a session, or null when crew does not know it. */
@@ -285,13 +301,14 @@ export class HerdrBackend implements SessionBackend {
       return this.startInteractiveInLayout(options, spec, layout);
     }
 
-    const workspaceId = this.ensureWorkspace(spec.workspaceLabel, options.cwd);
-    if (!workspaceId) {
+    const workspace = this.ensureWorkspace(spec.workspaceLabel, options.cwd);
+    if (!workspace) {
       return {
         ok: false,
         error: `Could not find or create the herdr workspace ${spec.workspaceLabel}`,
       };
     }
+    const workspaceId = workspace.id;
 
     // The developer of a task turns this tab into the shared task layout, so
     // it carries the task title alone; any other run is a single-role tab and
@@ -302,26 +319,36 @@ export class HerdrBackend implements SessionBackend {
       createsTaskLayout ? null : spec.role,
       options.name,
     );
-    const created = this.run([
-      'tab',
-      'create',
-      '--workspace',
-      workspaceId,
-      '--cwd',
-      options.cwd,
-      '--label',
-      tabLabel,
-      '--no-focus',
-    ]);
-    const tabId = created.json?.result?.tab?.tab_id;
-    const paneId = created.json?.result?.root_pane?.pane_id;
-    if (!created.ok || !tabId || !paneId) {
-      return {
-        ok: false,
-        error: `Could not create the herdr tab for ${options.name}: ${
-          created.stderr.trim() || 'unknown error'
-        }`,
-      };
+    let tabId: string;
+    let paneId: string;
+    if (workspace.tabId && workspace.paneId) {
+      // A fresh workspace already opened a tab and a root pane: rename that
+      // tab and use it instead of creating a second one.
+      tabId = workspace.tabId;
+      paneId = workspace.paneId;
+      this.run(['tab', 'rename', tabId, tabLabel]);
+    } else {
+      const created = this.run([
+        'tab',
+        'create',
+        '--workspace',
+        workspaceId,
+        '--cwd',
+        options.cwd,
+        '--label',
+        tabLabel,
+        '--no-focus',
+      ]);
+      tabId = created.json?.result?.tab?.tab_id as string;
+      paneId = created.json?.result?.root_pane?.pane_id as string;
+      if (!created.ok || !tabId || !paneId) {
+        return {
+          ok: false,
+          error: `Could not create the herdr tab for ${options.name}: ${
+            created.stderr.trim() || 'unknown error'
+          }`,
+        };
+      }
     }
 
     // The 3-pane task layout is created with the developer run: one split to
@@ -509,7 +536,9 @@ export class HerdrBackend implements SessionBackend {
     }
     const existing = this.findWorkspace(options.name);
     if (existing) {
-      this.run(['pane', 'close', existing.paneId]);
+      if (existing.paneId) {
+        this.run(['pane', 'close', existing.paneId]);
+      }
       this.run(['workspace', 'close', existing.id]);
     }
 
