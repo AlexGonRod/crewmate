@@ -507,6 +507,9 @@ npx skills add AlexGonRod/crewmate --skill crew-review -a opencode
 | `crew-guidelines` | dónde vive cada hecho y la regla de un solo dueño |
 | `crew-memory` | escribir, corregir y podar la memoria del proyecto |
 | `crew-scout` | cuándo investigar en vez de construir |
+| `crew-backlog` | partir una idea en historias verticales antes de crear tareas |
+| `crew-story` | refinar una historia con criterios y plan listos para `crew task create` |
+| `crew-pair` | emparejarse en un worktree manual: test rojo, código mínimo y commit de la persona |
 | `stow` | barrer la sesión y archivar lo aprendido |
 | `herdr` | usar el CLI de Herdr desde una sesión del crew |
 | `herdr-reviewr` | convertir un envío del plugin reviewr en una decisión de crew |
