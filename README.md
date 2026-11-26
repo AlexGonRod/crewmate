@@ -540,6 +540,9 @@ npx skills add AlexGonRod/crewmate --skill crew-review -a opencode
 | `crew-guidelines` | dónde vive cada hecho y la regla de un solo dueño |
 | `crew-memory` | escribir, corregir y podar la memoria del proyecto |
 | `crew-scout` | cuándo investigar en vez de construir |
+| `crew-backlog` | partir una idea en historias verticales antes de crear tareas (adaptado de hola-ai) |
+| `crew-story` | refinar una historia con criterios y plan listos para `crew task create` (adaptado de hola-ai) |
+| `crew-pair` | emparejarse en un worktree manual: test rojo, código mínimo y commit de la persona (adaptado de hola-ai) |
 | `stow` | barrer la sesión y archivar lo aprendido (adaptado de firstmate) |
 | `herdr` | usar el CLI de Herdr desde una sesión del crew (adaptado de herdrdev/herdr) |
 
